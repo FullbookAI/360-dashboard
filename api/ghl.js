@@ -16,6 +16,52 @@ async function ghlFetch(url, token) {
   }
 }
 
+// Paginate contacts using GHL cursor pagination (startAfter / startAfterId).
+// GHL max per page is 100; we fetch up to 10 pages (1000 contacts).
+async function fetchAllContacts(locationId, token) {
+  const all = [];
+  let startAfter = null;
+  let startAfterId = null;
+
+  for (let page = 0; page < 10; page++) {
+    let url = `${GHL_BASE}/contacts/?locationId=${locationId}&limit=100`;
+    if (startAfter)   url += `&startAfter=${encodeURIComponent(startAfter)}`;
+    if (startAfterId) url += `&startAfterId=${encodeURIComponent(startAfterId)}`;
+
+    const result = await ghlFetch(url, token);
+    if (result.error || !Array.isArray(result.contacts) || result.contacts.length === 0) break;
+
+    all.push(...result.contacts);
+    if (result.contacts.length < 100) break; // last page
+
+    // GHL returns next-page cursors in meta
+    startAfter   = result.meta?.startAfter   ?? null;
+    startAfterId = result.meta?.startAfterId ?? null;
+    if (!startAfter && !startAfterId) break;
+  }
+
+  return { contacts: all };
+}
+
+// Fetch up to 500 conversations (5 pages × 100).
+// GHL conversations/search uses page-based pagination.
+async function fetchAllConversations(locationId, token) {
+  const all = [];
+
+  for (let page = 1; page <= 5; page++) {
+    const result = await ghlFetch(
+      `${GHL_BASE}/conversations/search?locationId=${locationId}&limit=100&page=${page}`,
+      token
+    );
+    if (result.error || !Array.isArray(result.conversations) || result.conversations.length === 0) break;
+
+    all.push(...result.conversations);
+    if (result.conversations.length < 100) break; // last page
+  }
+
+  return { conversations: all };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -31,11 +77,12 @@ export default async function handler(req, res) {
   try {
     const now = Date.now();
     const start = now - 30 * 24 * 60 * 60 * 1000;
-    const end = now + 60 * 24 * 60 * 60 * 1000;
+    const end   = now + 60 * 24 * 60 * 60 * 1000;
 
-    const [conversations, contacts, calendarList] = await Promise.all([
-      ghlFetch(`${GHL_BASE}/conversations/search?locationId=${locationId}&limit=50`, token),
-      ghlFetch(`${GHL_BASE}/contacts/?locationId=${locationId}&limit=100`, token),
+    // Contacts and conversations fetched with pagination; calendars fetched in parallel.
+    const [contacts, conversations, calendarList] = await Promise.all([
+      fetchAllContacts(locationId, token),
+      fetchAllConversations(locationId, token),
       ghlFetch(`${GHL_BASE}/calendars/?locationId=${locationId}`, token),
     ]);
 
@@ -57,8 +104,14 @@ export default async function handler(req, res) {
       : "s-maxage=300, stale-while-revalidate=600");
 
     return res.status(200).json({
-      conversations, contacts,
+      conversations,
+      contacts,
       appointments: appointmentsError ? { error: appointmentsError, events: [] } : { events },
+      _counts: {
+        contacts: contacts.contacts?.length ?? 0,
+        conversations: conversations.conversations?.length ?? 0,
+        events: events.length,
+      },
     });
   } catch (err) {
     res.setHeader("Cache-Control", "no-store");
