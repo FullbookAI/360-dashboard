@@ -424,11 +424,12 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
 
   // Profiling funnel — hardcoded GHL custom field IDs (definitions endpoint unavailable)
   const CF = {
-    pestLocation: "nwaTYOb9vqY0BytfzLow",
-    isHomeowner:  "2BhPcaLNpQACv8CVt2WC",  // "Is Homeowner" yes/no
-    // homeownerPresent: "0veRRe4J…",       // need full ID — also yes/no
-    propertyType: "WXW5lULpj3ZlOcFBeUPy",  // "Property Type" (single family home, etc.)
-    // propertyClass: "uk70xnmU…",          // need full ID — commercial/residential
+    pestLocation:     "nwaTYOb9vqY0BytfzLow",  // Pest Activity Location (inside/outside)
+    isHomeowner:      "2BhPcaLNpQACv8CVt2WC",  // Is Homeowner (yes/no)
+    homeownerPresent: "0veRRe4JOhmJwxIMUXLM",  // Homeowner Present (yes/no)
+    propertyType:     "WXW5lULpj3ZlOcFBeUPy",  // Property Type (single family home, etc.)
+    propertyClass:    "uk70xnmUw60TI4ReTgZf",  // Property Class (commercial/residential)
+    _internal:        "vsYV3ExFzPfyzQi0dlRN",  // GHL internal option refs — unused
   };
   const hasCF = (c, ...fieldIds) => {
     const cf = Array.isArray(c.customFields) ? c.customFields : [];
@@ -443,10 +444,10 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
   const hasZip = (c) => !!(c.postalCode || c.postal_code || c.zip || "").trim();
   const profilingStages = [
     { label: "Has Name",               filter: (c) => hasName(c) },
-    { label: "Pest Activity Location", filter: (c) => hasName(c) && hasCF(c, CF.pestLocation) },
-    { label: "Is Homeowner",           filter: (c) => hasName(c) && hasCF(c, CF.pestLocation) && hasCF(c, CF.isHomeowner) },
-    { label: "Property Type",          filter: (c) => hasName(c) && hasCF(c, CF.pestLocation) && hasCF(c, CF.isHomeowner) && hasCF(c, CF.propertyType) },
-    { label: "Zipcode",                filter: (c) => hasName(c) && hasCF(c, CF.pestLocation) && hasCF(c, CF.isHomeowner) && hasCF(c, CF.propertyType) && hasZip(c) },
+    { label: "Pest Activity Location", filter: (c) => hasCF(c, CF.pestLocation) },
+    { label: "Is Homeowner",           filter: (c) => hasCF(c, CF.isHomeowner, CF.homeownerPresent) },
+    { label: "Property Type",          filter: (c) => hasCF(c, CF.propertyType, CF.propertyClass) },
+    { label: "Zipcode",                filter: (c) => hasZip(c) },
   ];
 
   const toContactRows = (list) => list.map(c => ({
@@ -489,7 +490,7 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
       </div>
 
       <div style={styles.section}>
-        <div style={styles.sectionTitle}>Profiling Funnel</div>
+        <div style={styles.sectionTitle}>Profiling Fields</div>
         {profilingStages.map(stage => {
           const matched = contacts.filter(stage.filter);
           return (
