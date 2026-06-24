@@ -37,15 +37,51 @@ async function fetchAllContacts(locationId, token) {
 
 async function fetchAllConversations(locationId, token) {
   const all = [];
-  for (let page = 1; page <= 5; page++) {
-    const result = await ghlFetch(
-      `${GHL_BASE}/conversations/search?locationId=${locationId}&limit=100&page=${page}`,
-      token
-    );
-    if (result.error || !Array.isArray(result.conversations) || result.conversations.length === 0) break;
-    all.push(...result.conversations);
-    if (result.conversations.length < 100) break;
+
+  // Fetch page 1 first — use total count to parallelise the rest if available
+  const first = await ghlFetch(
+    `${GHL_BASE}/conversations/search?locationId=${locationId}&limit=100&page=1`,
+    token
+  );
+  if (first.error || !Array.isArray(first.conversations) || first.conversations.length === 0) {
+    return { conversations: [] };
   }
+  all.push(...first.conversations);
+  if (first.conversations.length < 100) return { conversations: all };
+
+  const total = first.total ?? first.meta?.total ?? null;
+  const totalPages = total ? Math.ceil(total / 100) : null;
+
+  if (totalPages && totalPages > 1) {
+    // Parallel fetch in batches of 5 to avoid hammering rate limits
+    const pages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+    const BATCH = 5;
+    for (let i = 0; i < pages.length; i += BATCH) {
+      const batch = pages.slice(i, i + BATCH);
+      const results = await Promise.all(
+        batch.map(p => ghlFetch(
+          `${GHL_BASE}/conversations/search?locationId=${locationId}&limit=100&page=${p}`,
+          token
+        ))
+      );
+      for (const r of results) {
+        if (r.error || !Array.isArray(r.conversations)) break;
+        all.push(...r.conversations);
+      }
+    }
+  } else {
+    // No total in response — fall back to sequential pagination until last page
+    for (let page = 2; page <= 200; page++) {
+      const result = await ghlFetch(
+        `${GHL_BASE}/conversations/search?locationId=${locationId}&limit=100&page=${page}`,
+        token
+      );
+      if (result.error || !Array.isArray(result.conversations) || result.conversations.length === 0) break;
+      all.push(...result.conversations);
+      if (result.conversations.length < 100) break;
+    }
+  }
+
   return { conversations: all };
 }
 
