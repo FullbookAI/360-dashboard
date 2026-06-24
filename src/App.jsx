@@ -103,6 +103,7 @@ function nameMatch(a, b) {
   return aw.some(w => bw.includes(w));
 }
 
+function isCall(type) { return type === "TYPE_CALL" || type === "TYPE_PHONE"; }
 function parseCall(body = "") {
   const b = body.toLowerCase();
   const durationMatch = body.match(/(\d+)m(\d+)s/);
@@ -281,7 +282,7 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeR
   const needsReply = convos.filter(c => (c.unreadCount || 0) > 0);
   const upcoming = events.filter(e => { const d = toDate(e.startTime); return d && d.getTime() >= Date.now(); });
   const unconfirmed = upcoming.filter(e => withinDays(toDate(e.startTime), 2) && e.appointmentStatus !== "confirmed");
-  const calls = convos.filter(c => c.type === "TYPE_CALL");
+  const calls = convos.filter(c => isCall(c.type));
   const answeredCalls = calls.filter(c => parseCall(c.lastMessageBody).answered);
   const smsThreads = convos.filter(c => c.type === "TYPE_SMS");
   const bookRate = contacts.length ? Math.round((events.length / contacts.length) * 100) : 0;
@@ -336,7 +337,7 @@ function LeadFunnel({ analysis, data }) {
   const funnel = buildFunnel(contacts, convos, events);
   const total = contacts.length || 1;
 
-  const callConvos = convos.filter(c => c.type === "TYPE_CALL");
+  const callConvos = convos.filter(c => isCall(c.type));
   const parsedCalls = callConvos.map(c => ({ ...c, ...parseCall(c.lastMessageBody) }));
   const inboundCalls = parsedCalls.filter(c => c.inbound);
   const answeredCalls = parsedCalls.filter(c => c.answered);
@@ -469,14 +470,15 @@ function Conversations({ analysis, data }) {
   const convos = data?.conversations?.conversations || [];
   const smsThreads = convos.filter(c => c.type === "TYPE_SMS");
   const emailThreads = convos.filter(c => c.type === "TYPE_EMAIL");
-  const callThreads = convos.filter(c => c.type === "TYPE_CALL");
+  const callThreads = convos.filter(c => isCall(c.type));
   const smsWithReply = smsThreads.filter(c => (c.unreadCount || 0) > 0);
   const smsNoReply = smsThreads.filter(c => (c.unreadCount || 0) === 0);
   const allUnread = convos.filter(c => (c.unreadCount || 0) > 0);
 
   const typeMeta = {
-    TYPE_CALL: { bg: "#0D2E1A", color: C.green, label: "Call" },
-    TYPE_SMS: { bg: "#0D1E3A", color: C.blue, label: "SMS" },
+    TYPE_CALL:  { bg: "#0D2E1A", color: C.green, label: "Call" },
+    TYPE_PHONE: { bg: "#0D2E1A", color: C.green, label: "Call" },
+    TYPE_SMS:   { bg: "#0D1E3A", color: C.blue,  label: "SMS"  },
     TYPE_EMAIL: { bg: "#2A1B0D", color: C.amber, label: "Email" },
   };
 
