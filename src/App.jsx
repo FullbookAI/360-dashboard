@@ -422,28 +422,17 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
   const allReplied = convos.filter(c => (c.unreadCount || 0) > 0);
   const callThreads = convos.filter(c => isCall(c));
 
-  // Profiling funnel — cumulative stages based on filled contact fields
-  const fieldDefs = data?.customFieldDefs || [];
-  const findFieldId = (pattern) => {
-    const re = new RegExp(pattern, "i");
-    return fieldDefs.find(f => re.test(f.name || ""))?.id || null;
+  // Profiling funnel — hardcoded GHL custom field IDs (definitions endpoint unavailable)
+  const CF = {
+    pestLocation: "nwaTYOb9vqY0BytfzLow",
+    isHomeowner:  "2BhPcaLNpQACv8CVt2WC",  // "Is Homeowner" yes/no
+    // homeownerPresent: "0veRRe4J…",       // need full ID — also yes/no
+    propertyType: "WXW5lULpj3ZlOcFBeUPy",  // "Property Type" (single family home, etc.)
+    // propertyClass: "uk70xnmU…",          // need full ID — commercial/residential
   };
-  const pestLocId   = findFieldId("pest.*activity.*location|pest.*location");
-  const homeownerId = findFieldId("is.*home.?owner|home.?owner.*present");
-  const propTypeId  = findFieldId("property.*type");
-  // hasCF: match by field ID (when defs loaded) OR by fieldKey/name pattern on the contact entry itself
-  const hasCF = (c, fieldId, keyPattern) => {
+  const hasCF = (c, ...fieldIds) => {
     const cf = Array.isArray(c.customFields) ? c.customFields : [];
-    return cf.some(f => {
-      const val = (f.value ?? f.fieldValue ?? "").toString().trim();
-      if (!val) return false;
-      if (fieldId && f.id === fieldId) return true;
-      if (keyPattern) {
-        const re = new RegExp(keyPattern, "i");
-        return re.test(f.fieldKey || "") || re.test(f.key || "") || re.test(f.name || "");
-      }
-      return false;
-    });
+    return fieldIds.some(id => cf.some(f => f.id === id && (f.value ?? f.fieldValue ?? "").toString().trim()));
   };
   const NULL_NAME = /^[-–—\s]+$|^n\/?a$/i;
   const hasName = (c) => {
@@ -451,16 +440,13 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
     const real = (v) => v.length > 0 && !NULL_NAME.test(v);
     return real(f) || real(l);
   };
-  const hasZip  = (c) => !!(c.postalCode || c.postal_code || c.zip || "").trim();
-  const PEST_KEY = "pest.*activity.*location|pest.*location|activity.*location";
-  const HOME_KEY = "is.*home.?owner|home.?owner.*present|home.?owner";
-  const PROP_KEY = "property.*type";
+  const hasZip = (c) => !!(c.postalCode || c.postal_code || c.zip || "").trim();
   const profilingStages = [
     { label: "Has Name",               filter: (c) => hasName(c) },
-    { label: "Pest Activity Location", filter: (c) => hasName(c) && hasCF(c, pestLocId, PEST_KEY) },
-    { label: "Is Homeowner",           filter: (c) => hasName(c) && hasCF(c, pestLocId, PEST_KEY) && hasCF(c, homeownerId, HOME_KEY) },
-    { label: "Property Type",          filter: (c) => hasName(c) && hasCF(c, pestLocId, PEST_KEY) && hasCF(c, homeownerId, HOME_KEY) && hasCF(c, propTypeId, PROP_KEY) },
-    { label: "Zipcode",                filter: (c) => hasName(c) && hasCF(c, pestLocId, PEST_KEY) && hasCF(c, homeownerId, HOME_KEY) && hasCF(c, propTypeId, PROP_KEY) && hasZip(c) },
+    { label: "Pest Activity Location", filter: (c) => hasName(c) && hasCF(c, CF.pestLocation) },
+    { label: "Is Homeowner",           filter: (c) => hasName(c) && hasCF(c, CF.pestLocation) && hasCF(c, CF.isHomeowner) },
+    { label: "Property Type",          filter: (c) => hasName(c) && hasCF(c, CF.pestLocation) && hasCF(c, CF.isHomeowner) && hasCF(c, CF.propertyType) },
+    { label: "Zipcode",                filter: (c) => hasName(c) && hasCF(c, CF.pestLocation) && hasCF(c, CF.isHomeowner) && hasCF(c, CF.propertyType) && hasZip(c) },
   ];
 
   const toContactRows = (list) => list.map(c => ({
