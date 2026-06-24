@@ -75,21 +75,40 @@ function fmtDate(d) { return d ? d.toLocaleDateString([], { month: "short", day:
 function fmtDateTime(d) { return d ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"; }
 
 function leadSource(c, convos = []) {
-  const a = c.attributionSource || c.lastAttributionSource || {};
-  const srcRaw = c.source || c.sourceName || "";
-  const raw = (srcRaw || a.utmCampaign || a.campaign || a.medium || a.utmSource || a.source || "").toString().toLowerCase();
   const tags = Array.isArray(c.tags) ? c.tags.join(" ").toLowerCase() : "";
-  const medium = (a.medium || "").toLowerCase();
 
-  if (raw.includes("facebook") || raw.includes("fb") || raw.includes("meta") || raw.includes("instagram") ||
-      medium.includes("paid") || medium.includes("cpc") || tags.includes("facebook") || tags.includes("meta")) return "Facebook / Meta";
-  if (raw.includes("google") || tags.includes("google")) return "Google";
-  if (raw.includes("form") || raw.includes("web") || raw.includes("landing") || raw.includes("site")) return "Website Form";
-  if (raw.includes("referr") || tags.includes("referral")) return "Referral";
-  if (raw.includes("phone") || raw.includes("call") || raw.includes("inbound")) return "Phone / Inbound Call";
-  if (raw.includes("manual") || raw.includes("crm") || raw.includes("import")) return "Manual Entry";
-  if (srcRaw) return srcRaw.charAt(0).toUpperCase() + srcRaw.slice(1);
-  // No source on the contact record — check if they were created from an inbound call
+  // 1. Explicit source field set in GHL (manual or workflow) — highest priority, never overridden by UTM
+  const srcRaw = (c.source || c.sourceName || "").toString().trim();
+  if (srcRaw) {
+    const s = srcRaw.toLowerCase();
+    if (s.includes("facebook") || s.includes("fb") || s.includes("meta") || s.includes("instagram")) return "Facebook / Meta";
+    if (s.includes("google")) return "Google";
+    if (s.includes("form") || s.includes("web") || s.includes("landing") || s.includes("site")) return "Website Form";
+    if (s.includes("referr")) return "Referral";
+    if (s.includes("phone") || s.includes("call") || s.includes("inbound")) return "Phone / Inbound Call";
+    if (s.includes("manual") || s.includes("crm") || s.includes("import")) return "Manual Entry";
+    return srcRaw.charAt(0).toUpperCase() + srcRaw.slice(1);
+  }
+
+  // 2. Tags (secondary manual signal)
+  if (tags.includes("facebook") || tags.includes("meta") || tags.includes("instagram")) return "Facebook / Meta";
+  if (tags.includes("google")) return "Google";
+  if (tags.includes("referral")) return "Referral";
+  if (tags.includes("phone") || tags.includes("call") || tags.includes("inbound")) return "Phone / Inbound Call";
+
+  // 3. UTM attribution (only if no explicit source or tags)
+  const a = c.attributionSource || c.lastAttributionSource || {};
+  const utm = (a.utmCampaign || a.campaign || a.utmSource || a.source || "").toString().toLowerCase();
+  const medium = (a.medium || "").toLowerCase();
+  if (utm.includes("facebook") || utm.includes("fb") || utm.includes("meta") || utm.includes("instagram") ||
+      medium.includes("paid") || medium.includes("cpc")) return "Facebook / Meta";
+  if (utm.includes("google")) return "Google";
+  if (utm.includes("form") || utm.includes("web") || utm.includes("landing") || utm.includes("site")) return "Website Form";
+  if (utm.includes("referr")) return "Referral";
+  if (utm.includes("phone") || utm.includes("call") || utm.includes("inbound")) return "Phone / Inbound Call";
+  if (utm.includes("manual") || utm.includes("crm") || utm.includes("import")) return "Manual Entry";
+
+  // 4. Inbound call conversation fallback
   if (convos.length) {
     const cid = c.id;
     const cname = getName(c);
@@ -99,6 +118,7 @@ function leadSource(c, convos = []) {
     );
     if (hasInboundCall) return "Phone / Inbound Call";
   }
+
   return "No Source";
 }
 
