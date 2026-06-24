@@ -499,24 +499,24 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
           );
         })}
         {(() => {
-          if (fieldDefs.length > 0) return null;
+          const knownIds = new Set(Object.values(CF));
           const cfIdSamples = {};
           contacts.forEach(c => {
             (c.customFields || []).forEach(f => {
               const val = (f.value ?? f.fieldValue ?? "").toString().trim();
-              if (!val || !f.id) return;
+              if (!val || !f.id || knownIds.has(f.id)) return;
               if (!cfIdSamples[f.id]) cfIdSamples[f.id] = new Set();
               cfIdSamples[f.id].add(val);
             });
           });
-          const ids = Object.keys(cfIdSamples);
-          if (ids.length === 0) return <div style={{ fontSize: "0.72rem", color: C.textFaint, marginTop: "8px" }}>No custom field values found on contacts.</div>;
+          const unknownIds = Object.keys(cfIdSamples);
+          if (unknownIds.length === 0) return null;
           return (
-            <div style={{ fontSize: "0.72rem", color: C.amber, marginTop: "8px" }}>
-              <div style={{ marginBottom: "4px" }}>⚠ Field definitions unavailable — identify IDs to enable funnel stages:</div>
-              {ids.map(id => (
-                <div key={id} style={{ color: C.textDim, marginLeft: "8px", marginBottom: "2px" }}>
-                  <span style={{ color: C.textFaint }}>{id.slice(0, 8)}…</span> → {[...cfIdSamples[id]].slice(0, 3).join(", ")}
+            <div style={{ fontSize: "0.72rem", color: C.textFaint, marginTop: "8px" }}>
+              <div style={{ marginBottom: "3px" }}>Unidentified field IDs (share to map remaining stages):</div>
+              {unknownIds.map(id => (
+                <div key={id} style={{ marginLeft: "8px", marginBottom: "2px", fontFamily: "monospace" }}>
+                  {id} → {[...cfIdSamples[id]].slice(0, 3).join(", ")}
                 </div>
               ))}
             </div>
