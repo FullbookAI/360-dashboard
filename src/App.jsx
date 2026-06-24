@@ -74,7 +74,7 @@ function pct(n, d) { return d ? Math.round((n / d) * 100) : 0; }
 function fmtDate(d) { return d ? d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—"; }
 function fmtDateTime(d) { return d ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"; }
 
-function leadSource(c) {
+function leadSource(c, convos = []) {
   const a = c.attributionSource || c.lastAttributionSource || {};
   const srcRaw = c.source || c.sourceName || "";
   const raw = (srcRaw || a.utmCampaign || a.campaign || a.medium || a.utmSource || a.source || "").toString().toLowerCase();
@@ -89,6 +89,16 @@ function leadSource(c) {
   if (raw.includes("phone") || raw.includes("call") || raw.includes("inbound")) return "Phone / Inbound Call";
   if (raw.includes("manual") || raw.includes("crm") || raw.includes("import")) return "Manual Entry";
   if (srcRaw) return srcRaw.charAt(0).toUpperCase() + srcRaw.slice(1);
+  // No source on the contact record — check if they were created from an inbound call
+  if (convos.length) {
+    const cid = c.id;
+    const cname = getName(c);
+    const hasInboundCall = convos.some(cv =>
+      ((cid && cv.contactId && cv.contactId === cid) || nameMatch(getName(cv), cname)) &&
+      parseCall(cv.lastMessageBody || "").inbound
+    );
+    if (hasInboundCall) return "Phone / Inbound Call";
+  }
   return "No Source";
 }
 
@@ -147,7 +157,7 @@ function buildFunnel(contacts, convos, events) {
   const smsConvos = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const sources = {};
   contacts.forEach(c => {
-    const src = leadSource(c);
+    const src = leadSource(c, convos);
     if (!sources[src]) sources[src] = { leads: 0, smsStarted: 0, replied: 0, booked: 0 };
     const d = sources[src];
     d.leads++;
@@ -173,7 +183,7 @@ function buildFunnelDetails(contacts, convos, events) {
   const smsConvos = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const result = {};
   contacts.forEach(c => {
-    const src = leadSource(c);
+    const src = leadSource(c, convos);
     if (!result[src]) result[src] = { leads: [], smsStarted: [], replied: [], booked: [] };
     const r = result[src];
     r.leads.push(c);
@@ -404,7 +414,7 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeR
   const toContactRows = (list) => list.map(c => ({
     primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
     secondary: `${c.phone || "No phone"} · Added ${fmtDate(leadDate(c))}`,
-    badge: leadSource(c),
+    badge: leadSource(c, convos),
     badgeAccent: C.amber,
   }));
 
@@ -520,7 +530,7 @@ function LeadFunnel({ analysis, data, callDetails = [], onDrill }) {
   const toContactRows = (list) => list.map(c => ({
     primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
     secondary: `${c.phone || "No phone"} · Added ${fmtDate(leadDate(c))}`,
-    badge: leadSource(c),
+    badge: leadSource(c, convos),
     badgeAccent: C.amber,
   }));
 
@@ -638,10 +648,11 @@ function LeadFunnel({ analysis, data, callDetails = [], onDrill }) {
 
 function Campaigns({ analysis, data, onDrill }) {
   const contacts = data?.contacts?.contacts || [];
+  const convos = data?.conversations?.conversations || [];
   const events = data?.appointments?.events || [];
   const bySource = {};
   contacts.forEach(c => {
-    const s = leadSource(c);
+    const s = leadSource(c, convos);
     if (!bySource[s]) bySource[s] = { leads: 0, contacts: [] };
     bySource[s].leads++;
     bySource[s].contacts.push(c);
