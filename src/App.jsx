@@ -74,14 +74,20 @@ function pct(n, d) { return d ? Math.round((n / d) * 100) : 0; }
 
 function leadSource(c) {
   const a = c.attributionSource || c.lastAttributionSource || {};
-  const raw = (c.source || a.utmCampaign || a.campaign || a.medium || a.source || "").toString().toLowerCase();
-  if (raw.includes("facebook") || raw.includes("fb") || raw.includes("meta") || raw.includes("instagram") || a.medium?.toLowerCase()?.includes("paid")) return "Facebook / Meta";
-  if (raw.includes("google")) return "Google";
-  if (raw.includes("form") || raw.includes("web")) return "Website Form";
-  if (raw.includes("referr")) return "Referral";
-  if (raw.includes("phone") || raw.includes("call")) return "Phone / Inbound Call";
-  if (raw.includes("manual")) return "Manual Entry";
-  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "Unknown";
+  const srcRaw = c.source || c.sourceName || "";
+  const raw = (srcRaw || a.utmCampaign || a.campaign || a.medium || a.utmSource || a.source || "").toString().toLowerCase();
+  const tags = Array.isArray(c.tags) ? c.tags.join(" ").toLowerCase() : "";
+  const medium = (a.medium || "").toLowerCase();
+
+  if (raw.includes("facebook") || raw.includes("fb") || raw.includes("meta") || raw.includes("instagram") ||
+      medium.includes("paid") || medium.includes("cpc") || tags.includes("facebook") || tags.includes("meta")) return "Facebook / Meta";
+  if (raw.includes("google") || tags.includes("google")) return "Google";
+  if (raw.includes("form") || raw.includes("web") || raw.includes("landing") || raw.includes("site")) return "Website Form";
+  if (raw.includes("referr") || tags.includes("referral")) return "Referral";
+  if (raw.includes("phone") || raw.includes("call") || raw.includes("inbound")) return "Phone / Inbound Call";
+  if (raw.includes("manual") || raw.includes("crm") || raw.includes("import")) return "Manual Entry";
+  if (srcRaw) return srcRaw.charAt(0).toUpperCase() + srcRaw.slice(1);
+  return "No Source";
 }
 
 function getName(obj) {
@@ -120,13 +126,20 @@ function buildFunnel(contacts, convos, events) {
     if (!sources[src]) sources[src] = { leads: 0, smsStarted: 0, replied: 0, booked: 0 };
     const d = sources[src];
     d.leads++;
+    const cid = c.id;
     const cname = getName(c);
-    const matched = smsConvos.find(cv => nameMatch(getName(cv), cname));
+    // prefer contactId match (reliable); fall back to name match
+    const matched = smsConvos.find(cv =>
+      (cid && cv.contactId && cv.contactId === cid) || nameMatch(getName(cv), cname)
+    );
     if (matched) {
       d.smsStarted++;
       if ((matched.unreadCount || 0) > 0) d.replied++;
     }
-    if (events.some(e => nameMatch(e.title || "", cname))) d.booked++;
+    const hasAppt = events.some(e =>
+      (cid && e.contactId && e.contactId === cid) || nameMatch(e.title || "", cname)
+    );
+    if (hasAppt) d.booked++;
   });
   return Object.entries(sources).sort((a, b) => b[1].leads - a[1].leads);
 }
@@ -329,8 +342,11 @@ function LeadFunnel({ analysis, data }) {
   const answeredCalls = parsedCalls.filter(c => c.answered);
   const missedCalls = parsedCalls.filter(c => c.missed || c.voicemail);
   const callsBooked = parsedCalls.filter(c => {
+    const cid = c.contactId;
     const n = getName(c);
-    return n && events.some(e => nameMatch(e.title || "", n));
+    return events.some(e =>
+      (cid && e.contactId && e.contactId === cid) || nameMatch(e.title || "", n)
+    );
   });
 
   const sourceColors = { "Facebook / Meta": C.blue, "Google": C.green, "Website Form": C.purple };
