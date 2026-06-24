@@ -45,7 +45,6 @@ const styles = {
   actionSub: { fontSize: "0.8rem", color: C.textDim },
   recItem: { display: "flex", gap: "12px", alignItems: "flex-start", padding: "10px 0", borderBottom: `1px solid ${C.border}` },
   recNum: { background: C.amber, color: C.bg, borderRadius: "50%", width: "22px", height: "22px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: "700", flexShrink: 0, marginTop: "1px" },
-  flagItem: { display: "flex", gap: "10px", padding: "8px 0", fontSize: "0.88rem", color: "#F39C12", borderBottom: `1px solid ${C.border}`, alignItems: "flex-start" },
   bar: { height: "8px", borderRadius: "4px", background: C.amber, minWidth: "4px" },
   barTrack: { flex: 1, height: "8px", background: C.bg, borderRadius: "4px", overflow: "hidden" },
   loadingScreen: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", gap: "1.5rem" },
@@ -55,15 +54,24 @@ const styles = {
   errorBox: { background: "#2A1215", border: "1px solid #5C1E24", borderRadius: "8px", padding: "1rem", color: C.red, fontSize: "0.85rem", marginBottom: "1rem", lineHeight: "1.6", whiteSpace: "pre-wrap" },
   refreshBtn: { background: "transparent", border: `1px solid ${C.amber}`, color: C.amber, borderRadius: "8px", padding: "8px 16px", cursor: "pointer", fontSize: "0.82rem" },
   note: { fontSize: "0.78rem", color: C.textFaint, fontStyle: "italic", marginTop: "10px", lineHeight: "1.5" },
+  rangeBtn: { background: "transparent", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: "6px", padding: "4px 10px", fontSize: "0.78rem", fontWeight: "600", cursor: "pointer" },
+  rangeBtnActive: { background: `${C.amber}22`, border: `1px solid ${C.amber}`, color: C.amber },
+  bulletItem: { display: "flex", gap: "8px", padding: "6px 0", fontSize: "0.88rem", color: C.textMute, lineHeight: "1.6", borderBottom: `1px solid ${C.border}`, alignItems: "flex-start" },
+  bulletDot: { color: C.amber, fontWeight: "700", flexShrink: 0, marginTop: "1px" },
+  funnelSource: { marginBottom: "20px", paddingBottom: "16px", borderBottom: `1px solid ${C.border}` },
 };
 
-// ---------- helpers ----------
+// ─── helpers ──────────────────────────────────────────────────────────────────
 function toDate(v) { if (!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d; }
 function daysBetween(a, b) { return Math.floor((b - a) / 86400000); }
 function isToday(d) { const n = new Date(); return d && d.toDateString() === n.toDateString(); }
-function withinDays(d, n) { return d && (Date.now() - d.getTime()) <= n * 86400000 && d.getTime() <= Date.now() + n * 86400000; }
+function withinDays(d, n) { return d && (Date.now() - d.getTime()) <= n * 86400000; }
+function withinRange(d, days) { return !days || !d || withinDays(d, days); }
 function leadDate(c) { return toDate(c.dateAdded || c.createdAt || c.dateUpdated); }
+function convDate(c) { return toDate(c.lastMessageDate || c.dateAdded); }
 function fmtTime(d) { return d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""; }
+function pct(n, d) { return d ? Math.round((n / d) * 100) : 0; }
+
 function leadSource(c) {
   const a = c.attributionSource || c.lastAttributionSource || {};
   const raw = (c.source || a.utmCampaign || a.campaign || a.medium || a.source || "").toString().toLowerCase();
@@ -71,11 +79,59 @@ function leadSource(c) {
   if (raw.includes("google")) return "Google";
   if (raw.includes("form") || raw.includes("web")) return "Website Form";
   if (raw.includes("referr")) return "Referral";
+  if (raw.includes("phone") || raw.includes("call")) return "Phone / Inbound Call";
   if (raw.includes("manual")) return "Manual Entry";
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "Unknown";
 }
 
-// ---------- demo data (fallback only) ----------
+function getName(obj) {
+  return (obj.contactName || obj.fullName || `${obj.firstName || ""} ${obj.lastName || ""}`.trim() || "").toLowerCase().trim();
+}
+
+function nameMatch(a, b) {
+  if (!a || !b) return false;
+  const an = a.toLowerCase().trim(), bn = b.toLowerCase().trim();
+  if (an === bn || an.includes(bn) || bn.includes(an)) return true;
+  const aw = an.split(/\s+/).filter(w => w.length > 2);
+  const bw = bn.split(/\s+/).filter(w => w.length > 2);
+  return aw.some(w => bw.includes(w));
+}
+
+function parseCall(body = "") {
+  const b = body.toLowerCase();
+  const durationMatch = body.match(/(\d+)m(\d+)s/);
+  return {
+    inbound: b.includes("inbound"),
+    answered: b.includes("answered"),
+    voicemail: b.includes("voicemail"),
+    missed: b.includes("no answer") || (b.includes("missed") && !b.includes("voicemail")),
+    duration: durationMatch ? parseInt(durationMatch[1]) * 60 + parseInt(durationMatch[2]) : 0,
+    aiHandled: b.includes(" ai ") || b.includes("bot") || b.includes("receptionist"),
+    bookedInCall: b.includes("booked") || b.includes("appointment scheduled"),
+    tookDetails: b.includes("details") || b.includes("captured") || b.includes("address"),
+  };
+}
+
+function buildFunnel(contacts, convos, events) {
+  const smsConvos = convos.filter(c => c.type === "TYPE_SMS");
+  const sources = {};
+  contacts.forEach(c => {
+    const src = leadSource(c);
+    if (!sources[src]) sources[src] = { leads: 0, smsStarted: 0, replied: 0, booked: 0 };
+    const d = sources[src];
+    d.leads++;
+    const cname = getName(c);
+    const matched = smsConvos.find(cv => nameMatch(getName(cv), cname));
+    if (matched) {
+      d.smsStarted++;
+      if ((matched.unreadCount || 0) > 0) d.replied++;
+    }
+    if (events.some(e => nameMatch(e.title || "", cname))) d.booked++;
+  });
+  return Object.entries(sources).sort((a, b) => b[1].leads - a[1].leads);
+}
+
+// ─── demo data ────────────────────────────────────────────────────────────────
 const _now = Date.now();
 const _h = (h) => new Date(_now + h * 3600000).toISOString();
 const _d = (d) => new Date(_now - d * 86400000).toISOString();
@@ -93,18 +149,23 @@ const DEMO = {
     { contactName: "Omar Haddad", phone: "(737) 555-0133", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Attic Rats Lookalike" }, dateAdded: _d(5) },
     { contactName: "Grace Lin", phone: "(512) 555-0190", source: "referral", dateAdded: _d(6) },
     { contactName: "Ethan Pratt", phone: "(512) 555-0101", source: "google", dateAdded: _d(8) },
+    { contactName: "Carmen Ruiz", phone: "(512) 555-0200", source: "phone", dateAdded: _d(1) },
+    { contactName: "Derek Nash", phone: "(737) 555-0211", source: "phone", dateAdded: _d(3) },
   ] },
   conversations: { conversations: [
-    { contactName: "Maria Delgado", type: "TYPE_SMS", lastMessageBody: "Hi, do you handle roof rats? Saw your ad.", unreadCount: 2 },
-    { contactName: "James Okafor", type: "TYPE_SMS", lastMessageBody: "Can someone come out this week?", unreadCount: 1 },
-    { contactName: "Priya Nair", type: "TYPE_CALL", lastMessageBody: "Inbound call · 2m14s · answered" },
-    { contactName: "Tyler Brooks", type: "TYPE_SMS", lastMessageBody: "Thanks, see you Thursday!", unreadCount: 0 },
-    { contactName: "Sofia Russo", type: "TYPE_EMAIL", lastMessageBody: "Re: Quote for attic treatment", unreadCount: 1 },
-    { contactName: "Aaron Webb", type: "TYPE_CALL", lastMessageBody: "Outbound call · no answer · voicemail" },
-    { contactName: "Lena Fischer", type: "TYPE_SMS", lastMessageBody: "What's your pricing for a single visit?", unreadCount: 3 },
-    { contactName: "Marcus Hale", type: "TYPE_CALL", lastMessageBody: "Inbound call · 4m02s · answered" },
-    { contactName: "Dana Cole", type: "TYPE_SMS", lastMessageBody: "Confirmed for Tuesday, thank you", unreadCount: 0 },
-    { contactName: "Omar Haddad", type: "TYPE_SMS", lastMessageBody: "Still seeing droppings, can you re-treat?", unreadCount: 1 },
+    { contactName: "Maria Delgado", type: "TYPE_SMS", lastMessageBody: "Hi, do you handle roof rats? Saw your ad.", unreadCount: 2, lastMessageDate: _d(0) },
+    { contactName: "James Okafor", type: "TYPE_SMS", lastMessageBody: "Can someone come out this week?", unreadCount: 1, lastMessageDate: _d(0) },
+    { contactName: "Priya Nair", type: "TYPE_CALL", lastMessageBody: "Inbound call · 2m14s · answered", unreadCount: 0, lastMessageDate: _d(0) },
+    { contactName: "Tyler Brooks", type: "TYPE_SMS", lastMessageBody: "Thanks, see you Thursday!", unreadCount: 0, lastMessageDate: _d(1) },
+    { contactName: "Sofia Russo", type: "TYPE_EMAIL", lastMessageBody: "Re: Quote for attic treatment", unreadCount: 1, lastMessageDate: _d(1) },
+    { contactName: "Aaron Webb", type: "TYPE_CALL", lastMessageBody: "Outbound call · no answer · voicemail", unreadCount: 0, lastMessageDate: _d(2) },
+    { contactName: "Lena Fischer", type: "TYPE_SMS", lastMessageBody: "What's your pricing for a single visit?", unreadCount: 3, lastMessageDate: _d(2) },
+    { contactName: "Marcus Hale", type: "TYPE_CALL", lastMessageBody: "Inbound call · 4m02s · answered", unreadCount: 0, lastMessageDate: _d(3) },
+    { contactName: "Dana Cole", type: "TYPE_SMS", lastMessageBody: "Confirmed for Tuesday, thank you", unreadCount: 0, lastMessageDate: _d(4) },
+    { contactName: "Omar Haddad", type: "TYPE_SMS", lastMessageBody: "Still seeing droppings, can you re-treat?", unreadCount: 1, lastMessageDate: _d(5) },
+    { contactName: "Carmen Ruiz", type: "TYPE_CALL", lastMessageBody: "Inbound call · 3m30s · answered", unreadCount: 0, lastMessageDate: _d(1) },
+    { contactName: "Derek Nash", type: "TYPE_CALL", lastMessageBody: "Inbound call · 1m15s · answered", unreadCount: 0, lastMessageDate: _d(3) },
+    { contactName: "Grace Lin", type: "TYPE_SMS", lastMessageBody: "Do you service North Austin?", unreadCount: 1, lastMessageDate: _d(6) },
   ] },
   appointments: { events: [
     { title: "Inspection · Maria Delgado", startTime: _h(20), appointmentStatus: "new", assignedUserId: "Tech A" },
@@ -115,10 +176,11 @@ const DEMO = {
     { title: "Inspection · Sofia Russo", startTime: _h(96), appointmentStatus: "confirmed", assignedUserId: "Tech B" },
     { title: "Treatment · Marcus Hale", startTime: _h(-24), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
     { title: "Inspection · Aaron Webb", startTime: _h(-48), appointmentStatus: "showed", assignedUserId: "Tech B" },
+    { title: "Consultation · Carmen Ruiz", startTime: _h(32), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
   ] },
 };
 
-// ---------- shared bits ----------
+// ─── shared components ────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, accent }) {
   return (
     <div style={styles.statCard}>
@@ -128,24 +190,67 @@ function StatCard({ label, value, sub, accent }) {
     </div>
   );
 }
+
 function BarRow({ label, value, max, accent }) {
-  const pct = max ? Math.max(4, (value / max) * 100) : 4;
+  const p = max ? Math.max(4, (value / max) * 100) : 4;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 0" }}>
       <div style={{ width: "130px", fontSize: "0.82rem", color: C.textMute }}>{label}</div>
-      <div style={styles.barTrack}><div style={{ ...styles.bar, width: `${pct}%`, background: accent || C.amber }} /></div>
+      <div style={styles.barTrack}><div style={{ ...styles.bar, width: `${p}%`, background: accent || C.amber }} /></div>
       <div style={{ width: "36px", textAlign: "right", fontSize: "0.85rem", color: C.text, fontWeight: "600" }}>{value}</div>
     </div>
   );
 }
-// Reusable empty-state prompt to run the on-demand analysis.
+
+function FunnelStage({ label, count, base, accent }) {
+  const p = base ? Math.round((count / base) * 100) : 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 0" }}>
+      <div style={{ width: "160px", fontSize: "0.8rem", color: C.textMute, flexShrink: 0 }}>{label}</div>
+      <div style={styles.barTrack}>
+        <div style={{ ...styles.bar, width: `${Math.max(p, 3)}%`, background: accent || C.amber }} />
+      </div>
+      <div style={{ minWidth: "90px", textAlign: "right", fontSize: "0.82rem", color: C.text }}>
+        {count} <span style={{ color: C.textFaint, fontWeight: "400" }}>({p}%)</span>
+      </div>
+    </div>
+  );
+}
+
+function TimeRangePicker({ value, onChange }) {
+  const opts = [{ label: "7D", days: 7 }, { label: "30D", days: 30 }, { label: "90D", days: 90 }, { label: "All", days: 0 }];
+  return (
+    <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+      <span style={{ fontSize: "0.72rem", color: C.textFaint, marginRight: "2px" }}>Range:</span>
+      {opts.map(o => (
+        <button key={o.days} onClick={() => onChange(o.days)}
+          style={{ ...styles.rangeBtn, ...(value === o.days ? styles.rangeBtnActive : {}) }}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BulletList({ items, accent }) {
+  if (!items) return null;
+  const arr = Array.isArray(items) ? items : [items];
+  return (
+    <div>
+      {arr.map((item, i) => (
+        <div key={i} style={styles.bulletItem}>
+          <span style={{ ...styles.bulletDot, color: accent || C.amber }}>▸</span>
+          <span>{item}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AnalyzePrompt({ onAnalyze, analyzing }) {
   return (
     <div>
-      <p style={styles.insightText}>
-        Generate an on-demand AI review of the account. This is the only feature that uses API credits —
-        every metric above is computed live and free.
-      </p>
+      <p style={styles.insightText}>Generate an on-demand AI review of the account. This is the only feature that uses API credits — every metric above is computed live and free.</p>
       <button style={{ ...styles.aiBtn, ...(analyzing ? styles.aiBtnDisabled : {}) }} disabled={analyzing} onClick={() => onAnalyze(false)}>
         {analyzing ? <><span style={styles.spinnerSm} />Analyzing…</> : "✨ Get AI Analysis"}
       </button>
@@ -153,20 +258,24 @@ function AnalyzePrompt({ onAnalyze, analyzing }) {
   );
 }
 
-// ---------- tabs ----------
-function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt }) {
+// ─── tabs ─────────────────────────────────────────────────────────────────────
+
+function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeRange }) {
   const contacts = data?.contacts?.contacts || [];
   const convos = data?.conversations?.conversations || [];
   const events = data?.appointments?.events || [];
   const newToday = contacts.filter(c => isToday(leadDate(c))).length;
-  const newWeek = contacts.filter(c => { const d = leadDate(c); return d && Date.now() - d.getTime() <= 7 * 86400000; }).length;
   const needsReply = convos.filter(c => (c.unreadCount || 0) > 0);
   const upcoming = events.filter(e => { const d = toDate(e.startTime); return d && d.getTime() >= Date.now(); });
   const unconfirmed = upcoming.filter(e => withinDays(toDate(e.startTime), 2) && e.appointmentStatus !== "confirmed");
+  const calls = convos.filter(c => c.type === "TYPE_CALL");
+  const answeredCalls = calls.filter(c => parseCall(c.lastMessageBody).answered);
+  const smsThreads = convos.filter(c => c.type === "TYPE_SMS");
   const bookRate = contacts.length ? Math.round((events.length / contacts.length) * 100) : 0;
+  const rangeLabel = timeRange === 7 ? "7 days" : timeRange === 30 ? "30 days" : timeRange === 90 ? "90 days" : "all time";
 
   const queue = [];
-  if (needsReply.length) queue.push({ icon: "💬", color: C.blue, title: `${needsReply.length} conversation${needsReply.length > 1 ? "s" : ""} awaiting reply`, sub: needsReply.slice(0, 3).map(c => c.contactName || c.fullName || "Unknown").join(", ") + (needsReply.length > 3 ? "…" : "") });
+  if (needsReply.length) queue.push({ icon: "💬", color: C.blue, title: `${needsReply.length} conversation${needsReply.length > 1 ? "s" : ""} awaiting reply`, sub: needsReply.slice(0, 3).map(c => c.contactName || "Unknown").join(", ") + (needsReply.length > 3 ? "…" : "") });
   if (unconfirmed.length) queue.push({ icon: "📅", color: C.amber, title: `${unconfirmed.length} appointment${unconfirmed.length > 1 ? "s" : ""} unconfirmed in next 48h`, sub: "Send confirmation texts to reduce no-shows" });
   if (newToday) queue.push({ icon: "🎯", color: C.green, title: `${newToday} new lead${newToday > 1 ? "s" : ""} today`, sub: "Aim to make first contact within 5 minutes" });
   if (!queue.length) queue.push({ icon: "✓", color: C.green, title: "All clear", sub: "No urgent items in the queue right now" });
@@ -174,10 +283,11 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt }) {
   return (
     <div>
       <div style={styles.grid}>
-        <StatCard label="New Leads Today" value={newToday} sub={`${newWeek} this week`} accent={C.green} />
-        <StatCard label="Awaiting Reply" value={needsReply.length || 0} sub="unread conversations" accent={needsReply.length ? C.red : C.text} />
+        <StatCard label="New Leads Today" value={newToday} sub={`${contacts.length} in ${rangeLabel}`} accent={C.green} />
+        <StatCard label="Awaiting Reply" value={needsReply.length} sub={`${smsThreads.length} SMS threads total`} accent={needsReply.length ? C.red : C.text} />
+        <StatCard label="Calls Answered" value={answeredCalls.length} sub={`of ${calls.length} calls — ${pct(answeredCalls.length, calls.length)}% rate`} accent={C.green} />
         <StatCard label="Upcoming Appts" value={upcoming.length} sub={`${unconfirmed.length} unconfirmed`} accent={C.amber} />
-        <StatCard label="Booking Rate" value={`${bookRate}%`} sub="appts ÷ contacts" />
+        <StatCard label="Booking Rate" value={`${bookRate}%`} sub={`${events.length} appts / ${contacts.length} leads`} />
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>⚡ Action Queue</div>
@@ -197,7 +307,7 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt }) {
         {!analyzing && analysis?.summary && (
           <>
             <p style={styles.insightText}>{analysis.summary}</p>
-            {analyzedAt && <div style={styles.note}>Last analyzed {fmtTime(analyzedAt)} · open the AI Insights tab for the full breakdown</div>}
+            {analyzedAt && <div style={styles.note}>Last analyzed {fmtTime(analyzedAt)} · open AI Insights tab for the full breakdown</div>}
           </>
         )}
         {!analyzing && !analysis && <AnalyzePrompt onAnalyze={onAnalyze} analyzing={analyzing} />}
@@ -206,37 +316,99 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt }) {
   );
 }
 
-function LeadIntake({ analysis, data }) {
+function LeadFunnel({ analysis, data }) {
   const contacts = data?.contacts?.contacts || [];
-  const sorted = [...contacts].sort((a, b) => (leadDate(b)?.getTime() || 0) - (leadDate(a)?.getTime() || 0));
-  const bySource = {};
-  contacts.forEach(c => { const s = leadSource(c); bySource[s] = (bySource[s] || 0) + 1; });
-  const sourceArr = Object.entries(bySource).sort((a, b) => b[1] - a[1]);
-  const maxSrc = sourceArr[0]?.[1] || 1;
+  const convos = data?.conversations?.conversations || [];
+  const events = data?.appointments?.events || [];
+  const funnel = buildFunnel(contacts, convos, events);
+  const total = contacts.length || 1;
+
+  const callConvos = convos.filter(c => c.type === "TYPE_CALL");
+  const parsedCalls = callConvos.map(c => ({ ...c, ...parseCall(c.lastMessageBody) }));
+  const inboundCalls = parsedCalls.filter(c => c.inbound);
+  const answeredCalls = parsedCalls.filter(c => c.answered);
+  const missedCalls = parsedCalls.filter(c => c.missed || c.voicemail);
+  const callsBooked = parsedCalls.filter(c => {
+    const n = getName(c);
+    return n && events.some(e => nameMatch(e.title || "", n));
+  });
+
+  const sourceColors = { "Facebook / Meta": C.blue, "Google": C.green, "Website Form": C.purple };
+
   return (
     <div>
       {analysis?.leadInsights && (
-        <div style={styles.section}><div style={styles.sectionTitle}>AI Insights — Lead Intake</div><p style={styles.insightText}>{analysis.leadInsights}</p></div>
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>AI Insights — Lead Intake</div>
+          <BulletList items={analysis.leadInsights} />
+        </div>
       )}
+
       <div style={styles.section}>
-        <div style={styles.sectionTitle}>Leads by Source</div>
-        {sourceArr.length === 0 && <div style={styles.insightText}>No contact data loaded.</div>}
-        {sourceArr.map(([s, n]) => <BarRow key={s} label={s} value={n} max={maxSrc} accent={s.includes("Facebook") ? C.blue : C.amber} />)}
-      </div>
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Recent Leads ({contacts.length})</div>
-        {sorted.slice(0, 25).map((c, i) => {
-          const d = leadDate(c); const age = d ? daysBetween(d, new Date()) : null; const fresh = age === 0;
+        <div style={styles.sectionTitle}>SMS Lead Funnel by Source</div>
+        <div style={{ fontSize: "0.76rem", color: C.textFaint, marginBottom: "14px" }}>
+          % shown relative to each prior stage. "Replied" = active unread thread from lead. Booking matched by contact name.
+        </div>
+        {funnel.filter(([src]) => !src.toLowerCase().includes("phone")).map(([src, d]) => {
+          const accent = sourceColors[src] || C.amber;
           return (
-            <div key={i} style={styles.row}>
-              <div>
-                <div style={styles.rowName}>{c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown"}</div>
-                <div style={styles.rowSub}>{leadSource(c)}{c.phone ? ` · ${c.phone}` : ""}</div>
+            <div key={src} style={styles.funnelSource}>
+              <div style={{ fontSize: "0.88rem", color: C.text, fontWeight: "600", marginBottom: "8px", display: "flex", gap: "8px", alignItems: "center" }}>
+                <span style={{ color: accent, fontSize: "10px" }}>◆</span> {src}
+                <span style={{ ...styles.pill, background: `${accent}22`, color: accent, marginLeft: "4px" }}>{d.leads} leads</span>
               </div>
-              <span style={{ ...styles.pill, background: fresh ? "#0D2E1A" : C.bg, color: fresh ? C.green : C.textDim }}>{d ? (fresh ? "Today" : `${age}d ago`) : "—"}</span>
+              <FunnelStage label="Leads" count={d.leads} base={total} accent={C.textDim} />
+              <FunnelStage label="↳ SMS Started" count={d.smsStarted} base={d.leads} accent={accent} />
+              <FunnelStage label="  ↳ Lead Replied" count={d.replied} base={d.smsStarted || 1} accent={C.green} />
+              <FunnelStage label="  ↳ Appt Booked" count={d.booked} base={d.leads} accent={C.amber} />
             </div>
           );
         })}
+        {funnel.filter(([src]) => !src.toLowerCase().includes("phone")).length === 0 && (
+          <div style={styles.insightText}>No lead data in the selected time range.</div>
+        )}
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>📞 Voice Call Funnel</div>
+        <div style={styles.grid}>
+          <StatCard label="Total Calls" value={callConvos.length} />
+          <StatCard label="Inbound" value={inboundCalls.length} sub={`${pct(inboundCalls.length, callConvos.length)}% of all calls`} accent={C.blue} />
+          <StatCard label="Answered" value={answeredCalls.length} sub={`${pct(answeredCalls.length, callConvos.length)}% answer rate`} accent={C.green} />
+          <StatCard label="Missed / VM" value={missedCalls.length} sub={`${pct(missedCalls.length, callConvos.length)}% missed`} accent={missedCalls.length ? C.red : C.textDim} />
+          <StatCard label="Appt Booked" value={callsBooked.length} sub="booked from a call" accent={C.amber} />
+        </div>
+        {parsedCalls.length > 0 && (
+          <>
+            <div style={{ marginTop: "4px", marginBottom: "8px", fontSize: "0.76rem", color: C.textFaint }}>Call Log</div>
+            {parsedCalls.slice(0, 20).map((c, i) => {
+              const booked = callsBooked.some(b => getName(b) === getName(c));
+              const dMin = Math.floor(c.duration / 60), dSec = c.duration % 60;
+              return (
+                <div key={i} style={styles.row}>
+                  <div>
+                    <div style={styles.rowName}>{c.contactName || c.fullName || "Unknown"}</div>
+                    <div style={styles.rowSub}>
+                      {c.inbound ? "Inbound" : "Outbound"}
+                      {c.answered ? ` · Answered · ${dMin}m${dSec}s` : c.voicemail ? " · Voicemail" : " · Missed"}
+                      {c.aiHandled ? " · AI handled" : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {c.answered && <span style={{ ...styles.pill, background: "#0D2E1A", color: C.green }}>Answered</span>}
+                    {c.voicemail && <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>VM</span>}
+                    {c.missed && !c.voicemail && <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>Missed</span>}
+                    {c.bookedInCall && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>Booked in call</span>}
+                    {booked && !c.bookedInCall && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>Booked</span>}
+                    {c.tookDetails && <span style={{ ...styles.pill, background: `${C.blue}22`, color: C.blue }}>Details taken</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+        {callConvos.length === 0 && <div style={styles.insightText}>No call data in the selected time range.</div>}
+        <p style={styles.note}>Voice AI call summaries (what the AI said, fields captured, booking confirmation) require GHL AI Receptionist call log integration — connect that source to expand this section.</p>
       </div>
     </div>
   );
@@ -246,25 +418,32 @@ function Campaigns({ analysis, data }) {
   const contacts = data?.contacts?.contacts || [];
   const events = data?.appointments?.events || [];
   const bySource = {};
-  contacts.forEach(c => { const s = leadSource(c); if (!bySource[s]) bySource[s] = { leads: 0 }; bySource[s].leads++; });
+  contacts.forEach(c => {
+    const s = leadSource(c);
+    if (!bySource[s]) bySource[s] = { leads: 0 };
+    bySource[s].leads++;
+  });
   const arr = Object.entries(bySource).sort((a, b) => b[1].leads - a[1].leads);
   const maxLeads = arr[0]?.[1].leads || 1;
-  const fbLeads = (bySource["Facebook / Meta"]?.leads) || 0;
+  const fbLeads = bySource["Facebook / Meta"]?.leads || 0;
   return (
     <div>
       <div style={styles.grid}>
         <StatCard label="Facebook Leads" value={fbLeads} sub="attributed to Meta" accent={C.blue} />
         <StatCard label="Total Sources" value={arr.length} sub="active channels" />
-        <StatCard label="Appointments" value={events.length} sub="booked overall" accent={C.amber} />
+        <StatCard label="Appointments" value={events.length} sub="booked in range" accent={C.amber} />
       </div>
       {analysis?.campaignInsights && (
-        <div style={styles.section}><div style={styles.sectionTitle}>AI Insights — Campaign Quality</div><p style={styles.insightText}>{analysis.campaignInsights}</p></div>
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>AI Insights — Campaign Quality</div>
+          <BulletList items={analysis.campaignInsights} />
+        </div>
       )}
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Lead Volume by Channel</div>
-        {arr.length === 0 && <div style={styles.insightText}>No attribution data loaded.</div>}
+        {arr.length === 0 && <div style={styles.insightText}>No attribution data in the selected range.</div>}
         {arr.map(([s, v]) => <BarRow key={s} label={s} value={v.leads} max={maxLeads} accent={s.includes("Facebook") ? C.blue : C.amber} />)}
-        <p style={styles.note}>Lead counts come from GHL attribution data. Ad spend, impressions, and true cost-per-lead live in the Meta Ads API — connect that as a fourth data source to surface CPL and ROAS here.</p>
+        <p style={styles.note}>Ad spend, CPL, and ROAS live in the Meta Ads API — connect that source to surface true cost-per-lead here.</p>
       </div>
     </div>
   );
@@ -272,36 +451,52 @@ function Campaigns({ analysis, data }) {
 
 function Conversations({ analysis, data }) {
   const convos = data?.conversations?.conversations || [];
+  const smsThreads = convos.filter(c => c.type === "TYPE_SMS");
+  const emailThreads = convos.filter(c => c.type === "TYPE_EMAIL");
+  const callThreads = convos.filter(c => c.type === "TYPE_CALL");
+  const smsWithReply = smsThreads.filter(c => (c.unreadCount || 0) > 0);
+  const smsNoReply = smsThreads.filter(c => (c.unreadCount || 0) === 0);
+  const allUnread = convos.filter(c => (c.unreadCount || 0) > 0);
+
   const typeMeta = {
     TYPE_CALL: { bg: "#0D2E1A", color: C.green, label: "Call" },
     TYPE_SMS: { bg: "#0D1E3A", color: C.blue, label: "SMS" },
     TYPE_EMAIL: { bg: "#2A1B0D", color: C.amber, label: "Email" },
   };
-  const unread = convos.filter(c => (c.unreadCount || 0) > 0);
+
   return (
     <div>
       <div style={styles.grid}>
-        <StatCard label="Total Threads" value={convos.length} />
-        <StatCard label="Awaiting Reply" value={unread.length} sub="needs team response" accent={unread.length ? C.red : C.text} />
-        <StatCard label="Calls" value={convos.filter(c => c.type === "TYPE_CALL").length} accent={C.green} />
+        <StatCard label="SMS Threads" value={smsThreads.length} />
+        <StatCard label="Lead Replied (unread)" value={smsWithReply.length} sub={`${pct(smsWithReply.length, smsThreads.length)}% reply rate`} accent={smsWithReply.length ? C.green : C.textDim} />
+        <StatCard label="No Active Reply" value={smsNoReply.length} sub="handled or no response" accent={smsNoReply.length > smsWithReply.length ? C.red : C.textDim} />
+        <StatCard label="Email Threads" value={emailThreads.length} accent={C.amber} />
+        <StatCard label="Total Unread" value={allUnread.length} sub="across all channels" accent={allUnread.length ? C.red : C.text} />
       </div>
       {analysis?.conversationInsights && (
-        <div style={styles.section}><div style={styles.sectionTitle}>AI Insights — Response SLA</div><p style={styles.insightText}>{analysis.conversationInsights}</p></div>
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>AI Insights — Response SLA</div>
+          <BulletList items={analysis.conversationInsights} />
+        </div>
       )}
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Recent Conversations</div>
-        {convos.length === 0 && <div style={styles.insightText}>No conversation data loaded.</div>}
+        {convos.length === 0 && <div style={styles.insightText}>No conversation data in the selected range.</div>}
         {convos.slice(0, 25).map((c, i) => {
           const meta = typeMeta[c.type] || { bg: C.border, color: C.textDim, label: (c.type || "").replace("TYPE_", "") };
+          const hasReply = (c.unreadCount || 0) > 0;
           return (
             <div key={i} style={styles.row}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.rowName}>{c.contactName || c.fullName || "Unknown"}</div>
-                <div style={{ ...styles.rowSub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{c.lastMessageBody || c.lastMessage || "No preview"}</div>
+                <div style={{ ...styles.rowSub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{c.lastMessageBody || "No preview"}</div>
               </div>
-              <div style={{ display: "flex", gap: "6px" }}>
+              <div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
                 <span style={{ ...styles.pill, background: meta.bg, color: meta.color }}>{meta.label}</span>
-                {(c.unreadCount || 0) > 0 && <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>{c.unreadCount}</span>}
+                {hasReply
+                  ? <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>{c.unreadCount} unread</span>
+                  : c.type === "TYPE_SMS" && <span style={{ ...styles.pill, background: C.bg, color: C.textFaint }}>No reply</span>
+                }
               </div>
             </div>
           );
@@ -315,29 +510,42 @@ function Appointments({ analysis, data }) {
   const events = data?.appointments?.events || [];
   const sorted = [...events].sort((a, b) => (toDate(a.startTime)?.getTime() || 0) - (toDate(b.startTime)?.getTime() || 0));
   const upcoming = sorted.filter(e => (toDate(e.startTime)?.getTime() || 0) >= Date.now());
+  const past = sorted.filter(e => (toDate(e.startTime)?.getTime() || 0) < Date.now());
   const confirmed = upcoming.filter(e => e.appointmentStatus === "confirmed").length;
+  const showed = past.filter(e => e.appointmentStatus === "showed").length;
+  const showRate = past.length ? pct(showed, past.length) : null;
+
   return (
     <div>
       <div style={styles.grid}>
         <StatCard label="Upcoming" value={upcoming.length} accent={C.amber} />
-        <StatCard label="Confirmed" value={confirmed} sub="of upcoming" accent={C.green} />
-        <StatCard label="At Risk" value={upcoming.length - confirmed} sub="unconfirmed" accent={C.red} />
+        <StatCard label="Confirmed" value={confirmed} sub={`of ${upcoming.length} upcoming`} accent={C.green} />
+        <StatCard label="At Risk" value={upcoming.length - confirmed} sub="unconfirmed upcoming" accent={(upcoming.length - confirmed) ? C.red : C.textDim} />
+        {showRate !== null && <StatCard label="Show Rate" value={`${showRate}%`} sub={`${showed} showed / ${past.length} past`} accent={C.blue} />}
       </div>
       {analysis?.appointmentInsights && (
-        <div style={styles.section}><div style={styles.sectionTitle}>AI Insights — Booking & No-Show Risk</div><p style={styles.insightText}>{analysis.appointmentInsights}</p></div>
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>AI Insights — Booking & No-Show Risk</div>
+          <BulletList items={analysis.appointmentInsights} />
+        </div>
       )}
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Schedule ({events.length})</div>
-        {events.length === 0 && <div style={styles.insightText}>No appointment data loaded.</div>}
-        {sorted.slice(0, 25).map((e, i) => {
-          const d = toDate(e.startTime); const past = d && d.getTime() < Date.now(); const conf = e.appointmentStatus === "confirmed";
+        {events.length === 0 && <div style={styles.insightText}>No appointments in the selected range.</div>}
+        {sorted.slice(0, 30).map((e, i) => {
+          const d = toDate(e.startTime);
+          const isPast = d && d.getTime() < Date.now();
+          const conf = e.appointmentStatus === "confirmed";
+          const didShow = e.appointmentStatus === "showed";
           return (
             <div key={i} style={styles.row}>
               <div>
-                <div style={{ ...styles.rowName, color: past ? C.textDim : C.text }}>{e.title || e.name || "Appointment"}</div>
-                <div style={styles.rowSub}>{d ? d.toLocaleString() : "—"}{e.assignedUserId ? ` · Tech: ${e.assignedUserId}` : ""}</div>
+                <div style={{ ...styles.rowName, color: isPast ? C.textDim : C.text }}>{e.title || e.name || "Appointment"}</div>
+                <div style={styles.rowSub}>{d ? d.toLocaleString() : "—"}{e.assignedUserId ? ` · ${e.assignedUserId}` : ""}</div>
               </div>
-              <span style={{ ...styles.pill, background: conf ? "#0D2E1A" : C.bg, color: conf ? C.green : C.textDim }}>{e.appointmentStatus || "scheduled"}</span>
+              <span style={{ ...styles.pill, background: (conf || didShow) ? "#0D2E1A" : C.bg, color: (conf || didShow) ? C.green : C.textDim }}>
+                {e.appointmentStatus || "scheduled"}
+              </span>
             </div>
           );
         })}
@@ -356,8 +564,8 @@ function AIInsights({ analysis, analyzing, analyzedAt, onAnalyze }) {
       <AnalyzePrompt onAnalyze={onAnalyze} analyzing={analyzing} />
     </div>
   );
-  const recs = analysis.recommendations ? (Array.isArray(analysis.recommendations) ? analysis.recommendations : [analysis.recommendations]) : [];
-  const flags = analysis.redFlags ? (Array.isArray(analysis.redFlags) ? analysis.redFlags : [analysis.redFlags]) : [];
+  const recs = Array.isArray(analysis.recommendations) ? analysis.recommendations : analysis.recommendations ? [analysis.recommendations] : [];
+  const flags = Array.isArray(analysis.redFlags) ? analysis.redFlags : analysis.redFlags ? [analysis.redFlags] : [];
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
@@ -365,24 +573,57 @@ function AIInsights({ analysis, analyzing, analyzedAt, onAnalyze }) {
         <button style={styles.linkBtn} onClick={() => onAnalyze(true)}>↻ Re-run analysis</button>
       </div>
       {analysis.summary && (
-        <div style={styles.section}><div style={styles.sectionTitle}>Account Health Summary</div><p style={styles.insightText}>{analysis.summary}</p></div>
-      )}
-      {recs.length > 0 && (
         <div style={styles.section}>
-          <div style={styles.sectionTitle}>Team Recommendations</div>
-          {recs.map((r, i) => <div key={i} style={styles.recItem}><div style={styles.recNum}>{i + 1}</div><div style={styles.insightText}>{r}</div></div>)}
+          <div style={styles.sectionTitle}>Account Health Summary</div>
+          <p style={styles.insightText}>{analysis.summary}</p>
+        </div>
+      )}
+      {analysis.leadInsights && (
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>Lead Intake</div>
+          <BulletList items={analysis.leadInsights} />
+        </div>
+      )}
+      {analysis.campaignInsights && (
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>Campaigns</div>
+          <BulletList items={analysis.campaignInsights} />
+        </div>
+      )}
+      {analysis.conversationInsights && (
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>Conversations & Response SLA</div>
+          <BulletList items={analysis.conversationInsights} />
+        </div>
+      )}
+      {analysis.appointmentInsights && (
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>Appointments</div>
+          <BulletList items={analysis.appointmentInsights} />
         </div>
       )}
       {flags.length > 0 && (
         <div style={styles.section}>
           <div style={styles.sectionTitle}>⚠ Red Flags</div>
-          {flags.map((f, i) => <div key={i} style={styles.flagItem}><span>▸</span><span>{f}</span></div>)}
+          <BulletList items={flags} accent="#F39C12" />
+        </div>
+      )}
+      {recs.length > 0 && (
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>Team Recommendations</div>
+          {recs.map((r, i) => (
+            <div key={i} style={styles.recItem}>
+              <div style={styles.recNum}>{i + 1}</div>
+              <div style={styles.insightText}>{r}</div>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
+// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [step, setStep] = useState("loading");
   const [data, setData] = useState(null);
@@ -393,8 +634,27 @@ export default function App() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("command");
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [timeRange, setTimeRange] = useState(30);
 
-  // Manual, on-demand. The ONLY thing in the app that spends API credits.
+  const rawContacts = data?.contacts?.contacts || [];
+  const rawConvos = data?.conversations?.conversations || [];
+  const rawEvents = data?.appointments?.events || [];
+
+  const fContacts = timeRange ? rawContacts.filter(c => withinRange(leadDate(c), timeRange)) : rawContacts;
+  const fConvos = timeRange ? rawConvos.filter(c => withinRange(convDate(c), timeRange)) : rawConvos;
+  const fEvents = rawEvents.filter(e => {
+    const d = toDate(e.startTime);
+    if (!d) return false;
+    if (d.getTime() >= Date.now()) return true;
+    return !timeRange || withinDays(d, timeRange);
+  });
+
+  const filteredData = {
+    contacts: { contacts: fContacts },
+    conversations: { conversations: fConvos },
+    appointments: { events: fEvents },
+  };
+
   const runAnalysis = async (d, force = false) => {
     const res = await fetch("/api/analyze", {
       method: "POST",
@@ -423,7 +683,6 @@ export default function App() {
     }
   };
 
-  // Loads data only. No AI call here — analysis is manual.
   const load = async (force = false) => {
     setStep("loading");
     setError(null);
@@ -433,13 +692,12 @@ export default function App() {
       if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
       const raw = await res.json();
       if (raw.error) throw new Error(raw.detail ? `${raw.error}: ${raw.detail}` : raw.error);
-      const d = {
+      setData({
         conversations: raw.conversations || { conversations: [] },
         contacts: raw.contacts || { contacts: [] },
         appointments: raw.appointments || { events: [] },
-      };
-      setData(d);
-      setAnalysis(null);      // clear stale insights so they always match current data
+      });
+      setAnalysis(null);
       setAnalyzedAt(null);
       setLastUpdated(new Date());
       setStep("dashboard");
@@ -450,7 +708,6 @@ export default function App() {
   };
 
   const loadDemo = () => {
-    setError(null);
     setData(DEMO);
     setAnalysis(null);
     setAnalyzedAt(null);
@@ -462,7 +719,7 @@ export default function App() {
 
   const tabs = [
     { id: "command", label: "Command Center" },
-    { id: "leads", label: "Lead Intake" },
+    { id: "funnel", label: "Lead Funnel" },
     { id: "campaigns", label: "Campaigns" },
     { id: "conversations", label: "Conversations" },
     { id: "appointments", label: "Appointments" },
@@ -479,7 +736,7 @@ export default function App() {
 
   if (step === "error") return (
     <div style={{ ...styles.app, ...styles.setup }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } } body { margin: 0; }`}</style>
+      <style>{`* { box-sizing: border-box; } body { margin: 0; } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div style={styles.card}>
         <div style={styles.logo}>
           <div style={styles.logoIcon}>🐀</div>
@@ -488,10 +745,7 @@ export default function App() {
         <div style={styles.errorBox}>{error}</div>
         <button style={styles.btn} onClick={() => load(false)}>Retry Live Connection</button>
         <button style={styles.btnGhost} onClick={loadDemo}>Load Demo Data Instead</button>
-        <p style={styles.hint}>
-          A live error usually means a missing env var (GHL_TOKEN, GHL_LOCATION_ID) or a token scope.
-          Check the Vercel function logs for the exact GHL response.
-        </p>
+        <p style={styles.hint}>A live error usually means a missing env var (GHL_TOKEN, GHL_LOCATION_ID) or a token scope. Check the Vercel function logs for the exact GHL response.</p>
       </div>
     </div>
   );
@@ -507,7 +761,8 @@ export default function App() {
             <div style={{ fontSize: "0.72rem", color: C.textFaint }}>Account Operations · Team Admin</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+          <TimeRangePicker value={timeRange} onChange={setTimeRange} />
           {lastUpdated && <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Updated {fmtTime(lastUpdated)}</span>}
           <span style={styles.badge}>● Live</span>
           <button style={styles.refreshBtn} onClick={() => load(true)}>↻ Refresh</button>
@@ -519,11 +774,11 @@ export default function App() {
         ))}
       </div>
       <div style={styles.content}>
-        {activeTab === "command" && <CommandCenter analysis={analysis} data={data} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} />}
-        {activeTab === "leads" && <LeadIntake analysis={analysis} data={data} />}
-        {activeTab === "campaigns" && <Campaigns analysis={analysis} data={data} />}
-        {activeTab === "conversations" && <Conversations analysis={analysis} data={data} />}
-        {activeTab === "appointments" && <Appointments analysis={analysis} data={data} />}
+        {activeTab === "command" && <CommandCenter analysis={analysis} data={filteredData} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} timeRange={timeRange} />}
+        {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} />}
+        {activeTab === "campaigns" && <Campaigns analysis={analysis} data={filteredData} />}
+        {activeTab === "conversations" && <Conversations analysis={analysis} data={filteredData} />}
+        {activeTab === "appointments" && <Appointments analysis={analysis} data={filteredData} />}
         {activeTab === "ai" && <AIInsights analysis={analysis} analyzing={analyzing} analyzedAt={analyzedAt} onAnalyze={getAnalysis} />}
       </div>
     </div>

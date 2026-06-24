@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/jessi/.claude/projects/c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard/memory/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\jessi\\.claude\\projects\\c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard\\memory"
+    ]
+  }
+}

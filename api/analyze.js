@@ -22,14 +22,14 @@ export default async function handler(req, res) {
 
   const prompt = `You are the operations analyst for a marketing agency that MANAGES the GoHighLevel account, Facebook lead campaigns, lead intake, and appointment booking for a client: 360 Rodent Control (a rodent pest control company).
 
-Your audience is the AGENCY TEAM, not the client. Give operational, action-oriented guidance: speed-to-lead, response SLAs, which lead sources convert, appointment confirmation / no-show prevention, and pipeline leaks. Be specific and concise.
+Your audience is the AGENCY TEAM, not the client. Be direct and action-oriented. Focus on: speed-to-lead, response SLAs, which lead sources convert, appointment confirmation / no-show prevention, and pipeline leaks. No filler words.
 
 Conversations: ${JSON.stringify(conversations.slice(0, 15))}
 Contacts/Leads: ${JSON.stringify(contacts.slice(0, 15))}
 Appointments: ${JSON.stringify(appointments.slice(0, 15))}
 
-Return ONLY raw JSON, no markdown:
-{"summary":"2-3 sentence account health read","leadInsights":"...","campaignInsights":"...","conversationInsights":"...","appointmentInsights":"...","redFlags":["..."],"recommendations":["..."]}`;
+Return ONLY raw JSON, no markdown. Every insight field must be an array of short bullet strings (one idea per bullet, max 15 words each):
+{"summary":"2-3 sentence account health assessment","leadInsights":["bullet","bullet","bullet"],"campaignInsights":["bullet","bullet"],"conversationInsights":["bullet","bullet","bullet"],"appointmentInsights":["bullet","bullet"],"redFlags":["flag","flag"],"recommendations":["specific action 1","specific action 2","specific action 3"]}`;
 
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
