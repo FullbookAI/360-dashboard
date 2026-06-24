@@ -428,8 +428,10 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
     isHomeowner:      "2BhPcaLNpQACv8CVt2WC",  // Is Homeowner (yes/no)
     homeownerPresent: "0veRRe4JOhmJwxIMUXLM",  // Homeowner Present (yes/no)
     propertyType:     "WXW5lULpj3ZlOcFBeUPy",  // Property Type (single family home, etc.)
-    propertyClass:    "uk70xnmUw60TI4ReTgZf",  // Property Class (commercial/residential)
-    _internal:        "vsYV3ExFzPfyzQi0dlRN",  // GHL internal option refs — unused
+    propertyClass:    "uk70xnmUw60TI4ReTgZf",  // Residential / Commercial
+    _internal:        "vsYV3ExFzPfyzQi0dlRN",  // GHL internal option refs
+    _staff1:          "1X6z3qP9tDuaGglCTl16",  // staff assignment field
+    _staff2:          "YNSiemHqclnDZpCCaXan",  // staff assignment field
   };
   const hasCF = (c, ...fieldIds) => {
     const cf = Array.isArray(c.customFields) ? c.customFields : [];
@@ -443,11 +445,13 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
   };
   const hasZip = (c) => !!(c.postalCode || c.postal_code || c.zip || "").trim();
   const profilingStages = [
-    { label: "Has Name",               filter: (c) => hasName(c) },
-    { label: "Pest Activity Location", filter: (c) => hasCF(c, CF.pestLocation) },
-    { label: "Is Homeowner",           filter: (c) => hasCF(c, CF.isHomeowner, CF.homeownerPresent) },
-    { label: "Property Type",          filter: (c) => hasCF(c, CF.propertyType, CF.propertyClass) },
-    { label: "Zipcode",                filter: (c) => hasZip(c) },
+    { label: "Has Name",                 filter: (c) => hasName(c) },
+    { label: "Pest Activity Location",   filter: (c) => hasCF(c, CF.pestLocation) },
+    { label: "Is Homeowner",             filter: (c) => hasCF(c, CF.isHomeowner, CF.homeownerPresent) },
+    { label: "Residential / Commercial", filter: (c) => hasCF(c, CF.propertyClass) },
+    { label: "Property Type",            filter: (c) => hasCF(c, CF.propertyType) },
+    { label: "Email",                    filter: (c) => !!(c.email || "").trim() },
+    { label: "Zipcode",                  filter: (c) => hasZip(c) },
   ];
 
   const toContactRows = (list) => list.map(c => ({
