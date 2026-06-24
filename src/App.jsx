@@ -352,7 +352,28 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeR
   );
 }
 
-function LeadFunnel({ analysis, data }) {
+function parseAiMessages(messages = []) {
+  // GHL AI Receptionist adds a summary message after the call.
+  // These are longer text messages that are not the short call-log entry.
+  const CALL_LOG_RE = /^(inbound|outbound) call/i;
+  const summary = messages
+    .filter(m => {
+      const body = (m.body || m.text || m.content || "").toString().trim();
+      return body.length > 60 && !CALL_LOG_RE.test(body);
+    })
+    .map(m => (m.body || m.text || m.content || "").toString().trim())
+    .join("\n\n");
+
+  const lower = summary.toLowerCase();
+  return {
+    summary: summary || null,
+    bookedInSummary: lower.includes("book") || lower.includes("appointment") || lower.includes("scheduled"),
+    detailsCaptured: lower.includes("address") || lower.includes("name") || lower.includes("email") || lower.includes("pest") || lower.includes("issue"),
+    noAnswer: !summary && messages.length === 0,
+  };
+}
+
+function LeadFunnel({ analysis, data, callDetails = [] }) {
   const contacts = data?.contacts?.contacts || [];
   const convos = data?.conversations?.conversations || [];
   const events = data?.appointments?.events || [];
@@ -423,31 +444,38 @@ function LeadFunnel({ analysis, data }) {
             {parsedCalls.slice(0, 20).map((c, i) => {
               const booked = callsBooked.some(b => getName(b) === getName(c));
               const dMin = Math.floor(c.duration / 60), dSec = c.duration % 60;
+              const detail = callDetails.find(d => d.id === c.id);
+              const ai = detail ? parseAiMessages(detail.messages) : null;
               return (
-                <div key={i} style={styles.row}>
-                  <div>
-                    <div style={styles.rowName}>{c.contactName || c.fullName || "Unknown"}</div>
-                    <div style={styles.rowSub}>
-                      {c.inbound ? "Inbound" : "Outbound"}
-                      {c.answered ? ` · Answered · ${dMin}m${dSec}s` : c.voicemail ? " · Voicemail" : " · Missed"}
-                      {c.aiHandled ? " · AI handled" : ""}
+                <div key={i} style={{ ...styles.row, flexDirection: "column", alignItems: "flex-start", gap: "6px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "flex-start", gap: "10px" }}>
+                    <div>
+                      <div style={styles.rowName}>{c.contactName || c.fullName || "Unknown"}</div>
+                      <div style={styles.rowSub}>
+                        {c.inbound ? "Inbound" : "Outbound"}
+                        {c.answered ? ` · Answered · ${dMin}m${dSec}s` : c.voicemail ? " · Voicemail" : " · Missed"}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0 }}>
+                      {c.answered && <span style={{ ...styles.pill, background: "#0D2E1A", color: C.green }}>Answered</span>}
+                      {c.voicemail && <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>VM</span>}
+                      {c.missed && !c.voicemail && <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>Missed</span>}
+                      {(c.bookedInCall || ai?.bookedInSummary) && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>Booked</span>}
+                      {booked && !c.bookedInCall && !ai?.bookedInSummary && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>Appt booked</span>}
+                      {ai?.detailsCaptured && <span style={{ ...styles.pill, background: `${C.blue}22`, color: C.blue }}>Details captured</span>}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    {c.answered && <span style={{ ...styles.pill, background: "#0D2E1A", color: C.green }}>Answered</span>}
-                    {c.voicemail && <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>VM</span>}
-                    {c.missed && !c.voicemail && <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>Missed</span>}
-                    {c.bookedInCall && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>Booked in call</span>}
-                    {booked && !c.bookedInCall && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>Booked</span>}
-                    {c.tookDetails && <span style={{ ...styles.pill, background: `${C.blue}22`, color: C.blue }}>Details taken</span>}
-                  </div>
+                  {ai?.summary && (
+                    <div style={{ fontSize: "0.8rem", color: C.textMute, lineHeight: "1.55", background: C.panelDark, borderRadius: "6px", padding: "8px 10px", width: "100%", whiteSpace: "pre-wrap" }}>
+                      {ai.summary}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </>
         )}
         {callConvos.length === 0 && <div style={styles.insightText}>No call data in the selected time range.</div>}
-        <p style={styles.note}>Voice AI call summaries (what the AI said, fields captured, booking confirmation) require GHL AI Receptionist call log integration — connect that source to expand this section.</p>
       </div>
     </div>
   );
@@ -681,6 +709,7 @@ function AIInsights({ analysis, analyzing, analyzedAt, onAnalyze }) {
 export default function App() {
   const [step, setStep] = useState("loading");
   const [data, setData] = useState(null);
+  const [callDetails, setCallDetails] = useState([]);
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzedAt, setAnalyzedAt] = useState(null);
@@ -751,6 +780,7 @@ export default function App() {
         contacts: raw.contacts || { contacts: [] },
         appointments: raw.appointments || { events: [] },
       });
+      setCallDetails(Array.isArray(raw.callDetails) ? raw.callDetails : []);
       setAnalysis(null);
       setAnalyzedAt(null);
       setLastUpdated(new Date());
@@ -829,7 +859,7 @@ export default function App() {
       </div>
       <div style={styles.content}>
         {activeTab === "command" && <CommandCenter analysis={analysis} data={filteredData} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} timeRange={timeRange} />}
-        {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} />}
+        {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} callDetails={callDetails} />}
         {activeTab === "campaigns" && <Campaigns analysis={analysis} data={filteredData} />}
         {activeTab === "conversations" && <Conversations analysis={analysis} data={filteredData} />}
         {activeTab === "appointments" && <Appointments analysis={analysis} data={filteredData} />}

@@ -85,6 +85,43 @@ async function fetchAllConversations(locationId, token) {
   return { conversations: all };
 }
 
+// Fetch messages for recent call conversations to surface AI Receptionist summaries.
+// Batched in parallel groups of 5 to stay within GHL rate limits.
+async function fetchCallDetails(conversations, token) {
+  const CALL_RE = /inbound call|outbound call|voicemail|missed call|\d+m\d+s/i;
+  const callConvos = conversations
+    .filter(c => CALL_RE.test(c.lastMessageBody || ""))
+    .slice(0, 30);
+
+  if (!callConvos.length) return [];
+
+  const BATCH = 5;
+  const enriched = [];
+  for (let i = 0; i < callConvos.length; i += BATCH) {
+    const batch = callConvos.slice(i, i + BATCH);
+    const results = await Promise.all(
+      batch.map(c =>
+        ghlFetch(`${GHL_BASE}/conversations/${c.id}/messages?limit=20`, token)
+      )
+    );
+    batch.forEach((c, j) => {
+      const r = results[j];
+      // GHL nests messages under messages.messages in some versions
+      const msgs = r?.messages?.messages ?? r?.messages ?? [];
+      enriched.push({
+        id: c.id,
+        contactId: c.contactId,
+        contactName: c.contactName || c.fullName || "",
+        lastMessageBody: c.lastMessageBody || "",
+        lastMessageDate: c.lastMessageDate || "",
+        messages: Array.isArray(msgs) ? msgs : [],
+        _error: r?.error || null,
+      });
+    });
+  }
+  return enriched;
+}
+
 async function fetchAppointments(locationId, token, start, end) {
   const calendarList = await ghlFetch(`${GHL_BASE}/calendars/?locationId=${locationId}`, token);
 
@@ -143,16 +180,21 @@ export default async function handler(req, res) {
       fetchAppointments(locationId, token, start, end),
     ]);
 
+    // Fetch AI call messages after conversations are resolved (depends on conv IDs)
+    const callDetails = await fetchCallDetails(conversations.conversations || [], token);
+
     res.setHeader("Cache-Control", bypass ? "no-store" : "s-maxage=300, stale-while-revalidate=600");
 
     return res.status(200).json({
       conversations,
       contacts,
       appointments,
+      callDetails,
       _counts: {
         contacts: contacts.contacts?.length ?? 0,
         conversations: conversations.conversations?.length ?? 0,
         events: appointments.events?.length ?? 0,
+        callDetails: callDetails.length,
       },
     });
   } catch (err) {

@@ -4,7 +4,8 @@
       "Read(//c/Users/jessi/.claude/projects/c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard/memory/**)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git commit --allow-empty -m ' *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jessi\\.claude\\projects\\c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard\\memory"
