@@ -428,22 +428,34 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
     const re = new RegExp(pattern, "i");
     return fieldDefs.find(f => re.test(f.name || ""))?.id || null;
   };
-  const pestLocId   = findFieldId("pest.*(location|activity)|activity.*location");
-  const homeownerId = findFieldId("home.?owner|is.*(homeowner|owner)");
-  const propTypeId  = findFieldId("property.*(type|kind)");
-  const hasCF = (c, fieldId) => {
-    if (!fieldId) return false;
-    return (Array.isArray(c.customFields) ? c.customFields : [])
-      .some(f => f.id === fieldId && f.value?.toString().trim());
+  const pestLocId   = findFieldId("pest.*activity.*location|pest.*location");
+  const homeownerId = findFieldId("is.*home.?owner|home.?owner.*present");
+  const propTypeId  = findFieldId("property.*type");
+  // hasCF: match by field ID (when defs loaded) OR by fieldKey/name pattern on the contact entry itself
+  const hasCF = (c, fieldId, keyPattern) => {
+    const cf = Array.isArray(c.customFields) ? c.customFields : [];
+    return cf.some(f => {
+      const val = (f.value ?? f.fieldValue ?? "").toString().trim();
+      if (!val) return false;
+      if (fieldId && f.id === fieldId) return true;
+      if (keyPattern) {
+        const re = new RegExp(keyPattern, "i");
+        return re.test(f.fieldKey || "") || re.test(f.key || "") || re.test(f.name || "");
+      }
+      return false;
+    });
   };
-  const hasName = (c) => !!(c.firstName || c.lastName || c.contactName || c.fullName || "").trim();
+  const hasName = (c) => !!(c.firstName || c.lastName || "").trim();
   const hasZip  = (c) => !!(c.postalCode || c.postal_code || c.zip || "").trim();
+  const PEST_KEY = "pest.*activity.*location|pest.*location|activity.*location";
+  const HOME_KEY = "is.*home.?owner|home.?owner.*present|home.?owner";
+  const PROP_KEY = "property.*type";
   const profilingStages = [
     { label: "Has Name",               filter: (c) => hasName(c) },
-    { label: "Pest Activity Location", filter: (c) => hasName(c) && hasCF(c, pestLocId) },
-    { label: "Is Homeowner",           filter: (c) => hasName(c) && hasCF(c, pestLocId) && hasCF(c, homeownerId) },
-    { label: "Property Type",          filter: (c) => hasName(c) && hasCF(c, pestLocId) && hasCF(c, homeownerId) && hasCF(c, propTypeId) },
-    { label: "Zipcode",                filter: (c) => hasName(c) && hasCF(c, pestLocId) && hasCF(c, homeownerId) && hasCF(c, propTypeId) && hasZip(c) },
+    { label: "Pest Activity Location", filter: (c) => hasName(c) && hasCF(c, pestLocId, PEST_KEY) },
+    { label: "Is Homeowner",           filter: (c) => hasName(c) && hasCF(c, pestLocId, PEST_KEY) && hasCF(c, homeownerId, HOME_KEY) },
+    { label: "Property Type",          filter: (c) => hasName(c) && hasCF(c, pestLocId, PEST_KEY) && hasCF(c, homeownerId, HOME_KEY) && hasCF(c, propTypeId, PROP_KEY) },
+    { label: "Zipcode",                filter: (c) => hasName(c) && hasCF(c, pestLocId, PEST_KEY) && hasCF(c, homeownerId, HOME_KEY) && hasCF(c, propTypeId, PROP_KEY) && hasZip(c) },
   ];
 
   const toContactRows = (list) => list.map(c => ({
@@ -495,14 +507,9 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
             />
           );
         })}
-        {pestLocId === null && fieldDefs.length > 0 && (
-          <div style={{ fontSize: "0.75rem", color: C.textFaint, marginTop: "6px" }}>
-            Tip: custom fields not matched — check that GHL field names include "Pest Activity Location", "Is Homeowner", and "Property Type".
-          </div>
-        )}
         {fieldDefs.length === 0 && (
           <div style={{ fontSize: "0.75rem", color: C.textFaint, marginTop: "6px" }}>
-            Waiting for field definitions from GHL…
+            Field definitions unavailable — stages match by fieldKey pattern only.
           </div>
         )}
       </div>

@@ -151,9 +151,35 @@ function cleanEvents(events) {
   });
 }
 
-async function fetchCustomFieldDefs(locationId, token) {
-  const result = await ghlFetch(`${GHL_BASE}/contacts/custom-fields?locationId=${locationId}`, token);
-  return Array.isArray(result?.customFields) ? result.customFields : [];
+async function fetchCustomFieldDefs(locationId, token, contacts) {
+  const result = await ghlFetch(
+    `${GHL_BASE}/contacts/custom-fields?locationId=${locationId}`,
+    token
+  );
+  let fields = Array.isArray(result?.customFields) ? result.customFields :
+               Array.isArray(result?.fields) ? result.fields :
+               Array.isArray(result) ? result : [];
+
+  // Fallback: fetch one contact's full record — GHL sometimes includes fieldKey/name there
+  if (fields.length === 0 && Array.isArray(contacts) && contacts.length > 0) {
+    const seed = contacts.find(c => Array.isArray(c.customFields) && c.customFields.length > 0);
+    if (seed) {
+      const detail = await ghlFetch(`${GHL_BASE}/contacts/${seed.id}`, token);
+      const raw = detail?.contact?.customFields || detail?.customFields || [];
+      if (raw.some(f => f.fieldKey || f.name)) {
+        fields = raw.map(f => ({
+          id: f.id,
+          name: f.name || (f.fieldKey || "")
+            .replace(/^contact\./, "")
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, ch => ch.toUpperCase()),
+          fieldKey: f.fieldKey || "",
+        }));
+      }
+    }
+  }
+
+  return fields;
 }
 
 async function fetchAppointments(locationId, token, start, end) {
@@ -208,15 +234,17 @@ export default async function handler(req, res) {
     const start = now - 90 * 24 * 60 * 60 * 1000;
     const end   = now + 90 * 24 * 60 * 60 * 1000;
 
-    const [contacts, conversations, appointments, customFieldDefs] = await Promise.all([
+    const [contacts, conversations, appointments] = await Promise.all([
       fetchAllContacts(locationId, token),
       fetchAllConversations(locationId, token),
       fetchAppointments(locationId, token, start, end),
-      fetchCustomFieldDefs(locationId, token),
     ]);
 
-    // Fetch AI call messages after conversations are resolved (depends on conv IDs)
-    const callDetails = await fetchCallDetails(conversations.conversations || [], token);
+    // callDetails depends on conversations; customFieldDefs may need a contact as fallback
+    const [callDetails, customFieldDefs] = await Promise.all([
+      fetchCallDetails(conversations.conversations || [], token),
+      fetchCustomFieldDefs(locationId, token, contacts.contacts || []),
+    ]);
 
     // Clean data before returning so every consumer (tabs + AI) sees the same numbers
     const rawContactCount  = contacts.contacts?.length ?? 0;
