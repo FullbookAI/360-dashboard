@@ -513,15 +513,28 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
           );
         })}
         {(() => {
-          const withCF = contacts.filter(c => Array.isArray(c.customFields) && c.customFields.some(f => (f.value ?? f.fieldValue ?? "").toString().trim())).length;
-          const sampleIds = [...new Set(contacts.flatMap(c => (c.customFields || []).filter(f => (f.value ?? f.fieldValue ?? "").toString().trim()).map(f => f.id)))].slice(0, 4);
-          if (fieldDefs.length === 0 && withCF > 0) {
-            return <div style={{ fontSize: "0.72rem", color: C.amber, marginTop: "8px" }}>⚠ {withCF} contacts have custom field data but field definitions failed to load. IDs seen: {sampleIds.join(", ")}</div>;
-          }
-          if (withCF === 0) {
-            return <div style={{ fontSize: "0.72rem", color: C.textFaint, marginTop: "8px" }}>No custom field values found on contacts.</div>;
-          }
-          return null;
+          if (fieldDefs.length > 0) return null;
+          const cfIdSamples = {};
+          contacts.forEach(c => {
+            (c.customFields || []).forEach(f => {
+              const val = (f.value ?? f.fieldValue ?? "").toString().trim();
+              if (!val || !f.id) return;
+              if (!cfIdSamples[f.id]) cfIdSamples[f.id] = new Set();
+              cfIdSamples[f.id].add(val);
+            });
+          });
+          const ids = Object.keys(cfIdSamples);
+          if (ids.length === 0) return <div style={{ fontSize: "0.72rem", color: C.textFaint, marginTop: "8px" }}>No custom field values found on contacts.</div>;
+          return (
+            <div style={{ fontSize: "0.72rem", color: C.amber, marginTop: "8px" }}>
+              <div style={{ marginBottom: "4px" }}>⚠ Field definitions unavailable — identify IDs to enable funnel stages:</div>
+              {ids.map(id => (
+                <div key={id} style={{ color: C.textDim, marginLeft: "8px", marginBottom: "2px" }}>
+                  <span style={{ color: C.textFaint }}>{id.slice(0, 8)}…</span> → {[...cfIdSamples[id]].slice(0, 3).join(", ")}
+                </div>
+              ))}
+            </div>
+          );
         })()}
       </div>
 
