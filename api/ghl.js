@@ -122,6 +122,35 @@ async function fetchCallDetails(conversations, token) {
   return enriched;
 }
 
+// ─── data-quality filters ─────────────────────────────────────────────────────
+
+const SPAM_NAME_RE = /transfer.{0,4}of.{0,4}fund|graph\.org|top.{0,2}up|\busdt\b|\busdc\b|payment\s+\d|balance[-\s]|💰|phish|bit.?coin|crypto.?wallet/i;
+
+function cleanContacts(contacts) {
+  return contacts.filter(c => {
+    const name = (c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "").trim();
+    if (SPAM_NAME_RE.test(name)) return false;
+    const digits = (c.phone || "").replace(/\D/g, "");
+    if (digits.length > 11) return false;
+    return true;
+  });
+}
+
+function cleanEvents(events) {
+  const seen = new Set();
+  return events.filter(e => {
+    const title = (e.title || e.name || "").trim();
+    // Extract contact-name portion after common separators
+    const m = title.match(/(?:·|—|-|for)\s*(.+)$/i);
+    const contactPart = (m ? m[1] : title).trim();
+    if (!contactPart || /^null$/i.test(contactPart)) return false;
+    const key = `${contactPart.toLowerCase()}|${e.startTime || ""}|${e.calendarId || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function fetchAppointments(locationId, token, start, end) {
   const calendarList = await ghlFetch(`${GHL_BASE}/calendars/?locationId=${locationId}`, token);
 
@@ -183,6 +212,12 @@ export default async function handler(req, res) {
     // Fetch AI call messages after conversations are resolved (depends on conv IDs)
     const callDetails = await fetchCallDetails(conversations.conversations || [], token);
 
+    // Clean data before returning so every consumer (tabs + AI) sees the same numbers
+    const rawContactCount  = contacts.contacts?.length ?? 0;
+    const rawEventCount    = appointments.events?.length ?? 0;
+    contacts.contacts      = cleanContacts(contacts.contacts || []);
+    appointments.events    = cleanEvents(appointments.events || []);
+
     res.setHeader("Cache-Control", bypass ? "no-store" : "s-maxage=300, stale-while-revalidate=600");
 
     return res.status(200).json({
@@ -191,9 +226,11 @@ export default async function handler(req, res) {
       appointments,
       callDetails,
       _counts: {
-        contacts: contacts.contacts?.length ?? 0,
+        contacts: contacts.contacts.length,
+        contactsRemoved: rawContactCount - contacts.contacts.length,
         conversations: conversations.conversations?.length ?? 0,
-        events: appointments.events?.length ?? 0,
+        events: appointments.events.length,
+        eventsRemoved: rawEventCount - appointments.events.length,
         callDetails: callDetails.length,
       },
     });

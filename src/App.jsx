@@ -715,29 +715,64 @@ function Conversations({ data, onDrill }) {
 }
 
 function Appointments({ data }) {
-  const events = data?.appointments?.events || [];
-  const sorted = [...events].sort((a, b) => (toDate(a.startTime)?.getTime() || 0) - (toDate(b.startTime)?.getTime() || 0));
+  const rawEvents = data?.appointments?.events || [];
+
+  // Defensive client-side cleaning — mirrors api/ghl.js cleanEvents
+  const seen = new Set();
+  const events = rawEvents.filter(e => {
+    const title = (e.title || e.name || "").trim();
+    const m = title.match(/(?:·|—|-|for)\s*(.+)$/i);
+    const contactPart = (m ? m[1] : title).trim();
+    if (!contactPart || /^null$/i.test(contactPart)) return false;
+    const key = `${contactPart.toLowerCase()}|${e.startTime || ""}|${e.calendarId || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const hidden = rawEvents.length - events.length;
+
+  const now = Date.now();
+  const upcoming = events
+    .filter(e => (toDate(e.startTime)?.getTime() || 0) >= now)
+    .sort((a, b) => (toDate(a.startTime)?.getTime() || 0) - (toDate(b.startTime)?.getTime() || 0));
+  const past = events
+    .filter(e => (toDate(e.startTime)?.getTime() || 0) < now)
+    .sort((a, b) => (toDate(b.startTime)?.getTime() || 0) - (toDate(a.startTime)?.getTime() || 0));
+
+  const pastSlice = past.slice(0, Math.max(0, 60 - upcoming.length));
+
+  const renderRow = (e, isUpcoming) => {
+    const d = toDate(e.startTime);
+    const conf = e.appointmentStatus === "confirmed";
+    const didShow = e.appointmentStatus === "showed";
+    return (
+      <div key={`${e.id || e.title}|${e.startTime}`} style={styles.row}>
+        <div>
+          <div style={{ ...styles.rowName, color: isUpcoming ? C.text : C.textDim }}>{e.title || e.name || "Appointment"}</div>
+          <div style={styles.rowSub}>{d ? d.toLocaleString() : "—"}{e.assignedUserId ? ` · ${e.assignedUserId}` : ""}</div>
+        </div>
+        <div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
+          {isUpcoming && <span style={{ ...styles.pill, background: `${C.blue}22`, color: C.blue }}>upcoming</span>}
+          <span style={{ ...styles.pill, background: (conf || didShow) ? "#0D2E1A" : C.bg, color: (conf || didShow) ? C.green : C.textDim }}>
+            {e.appointmentStatus || "scheduled"}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={styles.section}>
-      {sorted.length === 0 && <div style={styles.insightText}>No appointments in the selected range.</div>}
-      {sorted.map((e, i) => {
-        const d = toDate(e.startTime);
-        const isPast = d && d.getTime() < Date.now();
-        const conf = e.appointmentStatus === "confirmed";
-        const didShow = e.appointmentStatus === "showed";
-        return (
-          <div key={i} style={styles.row}>
-            <div>
-              <div style={{ ...styles.rowName, color: isPast ? C.textDim : C.text }}>{e.title || e.name || "Appointment"}</div>
-              <div style={styles.rowSub}>{d ? d.toLocaleString() : "—"}{e.assignedUserId ? ` · ${e.assignedUserId}` : ""}</div>
-            </div>
-            <span style={{ ...styles.pill, background: (conf || didShow) ? "#0D2E1A" : C.bg, color: (conf || didShow) ? C.green : C.textDim }}>
-              {e.appointmentStatus || "scheduled"}
-            </span>
-          </div>
-        );
-      })}
+      {hidden > 0 && <p style={{ ...styles.note, marginBottom: "12px" }}>{hidden} duplicate or invalid record{hidden !== 1 ? "s" : ""} hidden.</p>}
+      {events.length === 0 && <div style={styles.insightText}>No appointments in the selected range.</div>}
+      {upcoming.map(e => renderRow(e, true))}
+      {pastSlice.length > 0 && upcoming.length > 0 && (
+        <div style={{ fontSize: "0.72rem", color: C.textFaint, padding: "10px 0 4px", letterSpacing: "0.06em", textTransform: "uppercase" }}>Past</div>
+      )}
+      {pastSlice.map(e => renderRow(e, false))}
+      {past.length > pastSlice.length && (
+        <p style={styles.note}>{past.length - pastSlice.length} older appointment{past.length - pastSlice.length !== 1 ? "s" : ""} not shown — narrow the date range to see them.</p>
+      )}
     </div>
   );
 }
