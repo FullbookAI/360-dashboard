@@ -422,14 +422,29 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
   const allReplied = convos.filter(c => (c.unreadCount || 0) > 0);
   const callThreads = convos.filter(c => isCall(c));
 
-  // Profiling stages — group contacts by their tags
-  const tagCounts = {};
-  contacts.forEach(c => {
-    const tags = Array.isArray(c.tags) ? c.tags.map(t => t.trim()).filter(Boolean) : [];
-    if (tags.length === 0) { tagCounts["Not Profiled"] = (tagCounts["Not Profiled"] || 0) + 1; }
-    else { tags.forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }); }
-  });
-  const stages = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+  // Profiling funnel — cumulative stages based on filled contact fields
+  const fieldDefs = data?.customFieldDefs || [];
+  const findFieldId = (pattern) => {
+    const re = new RegExp(pattern, "i");
+    return fieldDefs.find(f => re.test(f.name || ""))?.id || null;
+  };
+  const pestLocId   = findFieldId("pest.*(location|activity)|activity.*location");
+  const homeownerId = findFieldId("home.?owner|is.*(homeowner|owner)");
+  const propTypeId  = findFieldId("property.*(type|kind)");
+  const hasCF = (c, fieldId) => {
+    if (!fieldId) return false;
+    return (Array.isArray(c.customFields) ? c.customFields : [])
+      .some(f => f.id === fieldId && f.value?.toString().trim());
+  };
+  const hasName = (c) => !!(c.firstName || c.lastName || c.contactName || c.fullName || "").trim();
+  const hasZip  = (c) => !!(c.postalCode || c.postal_code || c.zip || "").trim();
+  const profilingStages = [
+    { label: "Has Name",               filter: (c) => hasName(c) },
+    { label: "Pest Activity Location", filter: (c) => hasName(c) && hasCF(c, pestLocId) },
+    { label: "Is Homeowner",           filter: (c) => hasName(c) && hasCF(c, pestLocId) && hasCF(c, homeownerId) },
+    { label: "Property Type",          filter: (c) => hasName(c) && hasCF(c, pestLocId) && hasCF(c, homeownerId) && hasCF(c, propTypeId) },
+    { label: "Zipcode",                filter: (c) => hasName(c) && hasCF(c, pestLocId) && hasCF(c, homeownerId) && hasCF(c, propTypeId) && hasZip(c) },
+  ];
 
   const toContactRows = (list) => list.map(c => ({
     primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
@@ -470,21 +485,27 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
         <StatCard label="Total Bookings" value={events.length} accent={C.amber} onClick={events.length ? () => onDrill?.("All Bookings", toEventRows(events)) : undefined} />
       </div>
 
-      {stages.length > 0 && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Profiling Stages</div>
-          <div style={{ ...styles.grid, marginBottom: 0 }}>
-            {stages.map(([tag, count]) => (
-              <StatCard key={tag} label={tag} value={count}
-                onClick={() => onDrill?.(`Stage: ${tag}`, toContactRows(contacts.filter(c => {
-                  if (tag === "Not Profiled") return !c.tags || c.tags.length === 0;
-                  return Array.isArray(c.tags) && c.tags.map(t => t.trim()).includes(tag);
-                })))}
-              />
-            ))}
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Profiling Funnel</div>
+        {profilingStages.map(stage => {
+          const matched = contacts.filter(stage.filter);
+          return (
+            <FunnelStage key={stage.label} label={stage.label} count={matched.length} base={contacts.length}
+              onClick={matched.length ? () => onDrill?.(`Profiling: ${stage.label}`, toContactRows(matched)) : undefined}
+            />
+          );
+        })}
+        {pestLocId === null && fieldDefs.length > 0 && (
+          <div style={{ fontSize: "0.75rem", color: C.textFaint, marginTop: "6px" }}>
+            Tip: custom fields not matched — check that GHL field names include "Pest Activity Location", "Is Homeowner", and "Property Type".
           </div>
-        </div>
-      )}
+        )}
+        {fieldDefs.length === 0 && (
+          <div style={{ fontSize: "0.75rem", color: C.textFaint, marginTop: "6px" }}>
+            Waiting for field definitions from GHL…
+          </div>
+        )}
+      </div>
 
       <div style={styles.section}>
         <div style={styles.sectionTitle}>
@@ -678,10 +699,6 @@ function Conversations({ data, onDrill }) {
   const callH = Math.floor(totalCallSec / 3600), callM = Math.floor((totalCallSec % 3600) / 60);
   const callTimeLabel = totalCallSec ? (callH > 0 ? `${callH}h ${callM}m` : `${callM}m`) : "0m";
 
-  // Profiling counts based on contact tags
-  const profilingStarted = contacts.filter(c => Array.isArray(c.tags) && c.tags.some(t => /profil/i.test(t) && !/complet|done|finish|end/i.test(t))).length;
-  const profilingEnded = contacts.filter(c => Array.isArray(c.tags) && c.tags.some(t => /profil/i.test(t) && /complet|done|finish|end/i.test(t))).length;
-
   const toConvoRows = (list) => list.map(c => {
     const cat = convCategory(c.type, c.lastMessageBody);
     const catColor = { sms: C.blue, call: C.green, email: C.amber, facebook: C.blue, instagram: C.purple }[cat] || C.textDim;
@@ -714,8 +731,6 @@ function Conversations({ data, onDrill }) {
         <StatCard label="Total Replies" value={allReplied.length} accent={allReplied.length ? C.green : C.textDim} onClick={allReplied.length ? () => onDrill?.("Replied Conversations", toConvoRows(allReplied)) : undefined} />
         <StatCard label="Total Phone Calls" value={callThreads.length} accent={C.blue} onClick={callThreads.length ? () => onDrill?.("Phone Calls", toConvoRows(callThreads)) : undefined} />
         <StatCard label="Total Call Time" value={callTimeLabel} sub={`${parsedCalls.filter(c => c.answered).length} answered`} />
-        {profilingStarted > 0 && <StatCard label="Profiling Started" value={profilingStarted} accent={C.purple} />}
-        {profilingEnded > 0 && <StatCard label="Profiling Ended" value={profilingEnded} accent={C.green} />}
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>All Conversations</div>
@@ -921,6 +936,7 @@ export default function App() {
     contacts: { contacts: sfContacts },
     conversations: { conversations: sfConvos },
     appointments: { events: sfEvents },
+    customFieldDefs: data?.customFieldDefs || [],
   };
 
   const runAnalysis = async (d, force = false) => {
@@ -964,6 +980,7 @@ export default function App() {
         conversations: raw.conversations || { conversations: [] },
         contacts: raw.contacts || { contacts: [] },
         appointments: raw.appointments || { events: [] },
+        customFieldDefs: raw.customFieldDefs || [],
       });
       setCallDetails(Array.isArray(raw.callDetails) ? raw.callDetails : []);
       setAnalysis(null);

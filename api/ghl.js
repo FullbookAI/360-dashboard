@@ -151,6 +151,11 @@ function cleanEvents(events) {
   });
 }
 
+async function fetchCustomFieldDefs(locationId, token) {
+  const result = await ghlFetch(`${GHL_BASE}/contacts/custom-fields?locationId=${locationId}`, token);
+  return Array.isArray(result?.customFields) ? result.customFields : [];
+}
+
 async function fetchAppointments(locationId, token, start, end) {
   const calendarList = await ghlFetch(`${GHL_BASE}/calendars/?locationId=${locationId}`, token);
 
@@ -203,10 +208,11 @@ export default async function handler(req, res) {
     const start = now - 90 * 24 * 60 * 60 * 1000;
     const end   = now + 90 * 24 * 60 * 60 * 1000;
 
-    const [contacts, conversations, appointments] = await Promise.all([
+    const [contacts, conversations, appointments, customFieldDefs] = await Promise.all([
       fetchAllContacts(locationId, token),
       fetchAllConversations(locationId, token),
       fetchAppointments(locationId, token, start, end),
+      fetchCustomFieldDefs(locationId, token),
     ]);
 
     // Fetch AI call messages after conversations are resolved (depends on conv IDs)
@@ -225,6 +231,7 @@ export default async function handler(req, res) {
       contacts,
       appointments,
       callDetails,
+      customFieldDefs,
       _counts: {
         contacts: contacts.contacts.length,
         contactsRemoved: rawContactCount - contacts.contacts.length,
