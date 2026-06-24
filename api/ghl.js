@@ -72,7 +72,20 @@ async function fetchAppointments(locationId, token, start, end) {
     ? { error: calendarList.error, detail: calendarList.detail }
     : { count: Array.isArray(calendarList.calendars) ? calendarList.calendars.length : "not-array", keys: Object.keys(calendarList) };
 
-  const calendars = Array.isArray(calendarList?.calendars) ? calendarList.calendars : [];
+  const allCalendars = Array.isArray(calendarList?.calendars) ? calendarList.calendars : [];
+  // Keep business calendars; skip purely personal ones (no pest-control keyword in name)
+  const businessKeywords = ["inspection", "rodent", "treatment", "360", "offer", "pest", "control"];
+  const calendars = allCalendars.filter(cal => {
+    const name = (cal.name || "").toLowerCase();
+    const isPersonal = name.includes("personal calendar");
+    const hasBizKeyword = businessKeywords.some(k => name.includes(k));
+    return !isPersonal || hasBizKeyword;
+  });
+  debug.calendarFilter = {
+    total: allCalendars.length,
+    kept: calendars.length,
+    skipped: allCalendars.filter(c => !calendars.includes(c)).map(c => c.name),
+  };
   if (calendars.length > 0) {
     const results = await Promise.all(
       calendars.slice(0, 10).map((cal) =>
