@@ -16,6 +16,9 @@ const styles = {
   logoSub: { fontSize: "0.75rem", color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase" },
   btn: { width: "100%", background: C.amber, color: C.bg, border: "none", borderRadius: "8px", padding: "12px", fontSize: "0.95rem", fontWeight: "700", cursor: "pointer", letterSpacing: "0.02em" },
   btnGhost: { width: "100%", background: "transparent", color: C.textDim, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "11px", fontSize: "0.9rem", fontWeight: "600", cursor: "pointer", marginTop: "10px" },
+  aiBtn: { background: C.amber, color: C.bg, border: "none", borderRadius: "8px", padding: "10px 18px", fontSize: "0.9rem", fontWeight: "700", cursor: "pointer", marginTop: "12px" },
+  aiBtnDisabled: { background: "#3A5068", color: C.textDim, cursor: "not-allowed" },
+  linkBtn: { background: "transparent", border: `1px solid ${C.border}`, color: C.amber, borderRadius: "6px", padding: "4px 10px", fontSize: "0.74rem", fontWeight: "600", cursor: "pointer" },
   hint: { fontSize: "0.78rem", color: C.textFaint, marginTop: "1rem", textAlign: "center", lineHeight: "1.5" },
   header: { background: C.panelDark, borderBottom: `1px solid ${C.border}`, padding: "1rem 2rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" },
   headerLeft: { display: "flex", alignItems: "center", gap: "12px" },
@@ -47,6 +50,7 @@ const styles = {
   barTrack: { flex: 1, height: "8px", background: C.bg, borderRadius: "4px", overflow: "hidden" },
   loadingScreen: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", gap: "1.5rem" },
   spinner: { width: "48px", height: "48px", border: `3px solid ${C.border}`, borderTop: `3px solid ${C.amber}`, borderRadius: "50%", animation: "spin 1s linear infinite" },
+  spinnerSm: { width: "16px", height: "16px", border: `2px solid ${C.border}`, borderTop: `2px solid ${C.amber}`, borderRadius: "50%", animation: "spin 1s linear infinite", display: "inline-block", verticalAlign: "middle", marginRight: "8px" },
   loadLabel: { color: C.textDim, fontSize: "0.9rem" },
   errorBox: { background: "#2A1215", border: "1px solid #5C1E24", borderRadius: "8px", padding: "1rem", color: C.red, fontSize: "0.85rem", marginBottom: "1rem", lineHeight: "1.6", whiteSpace: "pre-wrap" },
   refreshBtn: { background: "transparent", border: `1px solid ${C.amber}`, color: C.amber, borderRadius: "8px", padding: "8px 16px", cursor: "pointer", fontSize: "0.82rem" },
@@ -59,6 +63,7 @@ function daysBetween(a, b) { return Math.floor((b - a) / 86400000); }
 function isToday(d) { const n = new Date(); return d && d.toDateString() === n.toDateString(); }
 function withinDays(d, n) { return d && (Date.now() - d.getTime()) <= n * 86400000 && d.getTime() <= Date.now() + n * 86400000; }
 function leadDate(c) { return toDate(c.dateAdded || c.createdAt || c.dateUpdated); }
+function fmtTime(d) { return d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""; }
 function leadSource(c) {
   const a = c.attributionSource || c.lastAttributionSource || {};
   const raw = (c.source || a.utmCampaign || a.campaign || a.medium || a.source || "").toString().toLowerCase();
@@ -133,9 +138,23 @@ function BarRow({ label, value, max, accent }) {
     </div>
   );
 }
+// Reusable empty-state prompt to run the on-demand analysis.
+function AnalyzePrompt({ onAnalyze, analyzing }) {
+  return (
+    <div>
+      <p style={styles.insightText}>
+        Generate an on-demand AI review of the account. This is the only feature that uses API credits —
+        every metric above is computed live and free.
+      </p>
+      <button style={{ ...styles.aiBtn, ...(analyzing ? styles.aiBtnDisabled : {}) }} disabled={analyzing} onClick={() => onAnalyze(false)}>
+        {analyzing ? <><span style={styles.spinnerSm} />Analyzing…</> : "✨ Get AI Analysis"}
+      </button>
+    </div>
+  );
+}
 
 // ---------- tabs ----------
-function CommandCenter({ analysis, data }) {
+function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt }) {
   const contacts = data?.contacts?.contacts || [];
   const convos = data?.conversations?.conversations || [];
   const events = data?.appointments?.events || [];
@@ -169,12 +188,20 @@ function CommandCenter({ analysis, data }) {
           </div>
         ))}
       </div>
-      {analysis?.summary && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>AI Account Health</div>
-          <p style={styles.insightText}>{analysis.summary}</p>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>
+          <span>AI Account Health</span>
+          {analysis && !analyzing && <button style={styles.linkBtn} onClick={() => onAnalyze(true)}>↻ Re-run</button>}
         </div>
-      )}
+        {analyzing && <p style={styles.insightText}><span style={styles.spinnerSm} />Claude is reviewing the account…</p>}
+        {!analyzing && analysis?.summary && (
+          <>
+            <p style={styles.insightText}>{analysis.summary}</p>
+            {analyzedAt && <div style={styles.note}>Last analyzed {fmtTime(analyzedAt)} · open the AI Insights tab for the full breakdown</div>}
+          </>
+        )}
+        {!analyzing && !analysis && <AnalyzePrompt onAnalyze={onAnalyze} analyzing={analyzing} />}
+      </div>
     </div>
   );
 }
@@ -319,12 +346,24 @@ function Appointments({ analysis, data }) {
   );
 }
 
-function AIInsights({ analysis }) {
-  if (!analysis) return <div style={styles.section}><div style={styles.insightText}>No analysis available.</div></div>;
+function AIInsights({ analysis, analyzing, analyzedAt, onAnalyze }) {
+  if (analyzing) return (
+    <div style={styles.section}><div style={styles.insightText}><span style={styles.spinnerSm} />Claude is reviewing the account…</div></div>
+  );
+  if (!analysis) return (
+    <div style={styles.section}>
+      <div style={styles.sectionTitle}>AI Insights</div>
+      <AnalyzePrompt onAnalyze={onAnalyze} analyzing={analyzing} />
+    </div>
+  );
   const recs = analysis.recommendations ? (Array.isArray(analysis.recommendations) ? analysis.recommendations : [analysis.recommendations]) : [];
   const flags = analysis.redFlags ? (Array.isArray(analysis.redFlags) ? analysis.redFlags : [analysis.redFlags]) : [];
   return (
     <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+        <span style={{ fontSize: "0.78rem", color: C.textFaint }}>{analyzedAt ? `Last analyzed ${fmtTime(analyzedAt)}` : ""}</span>
+        <button style={styles.linkBtn} onClick={() => onAnalyze(true)}>↻ Re-run analysis</button>
+      </div>
       {analysis.summary && (
         <div style={styles.section}><div style={styles.sectionTitle}>Account Health Summary</div><p style={styles.insightText}>{analysis.summary}</p></div>
       )}
@@ -348,34 +387,49 @@ export default function App() {
   const [step, setStep] = useState("loading");
   const [data, setData] = useState(null);
   const [analysis, setAnalysis] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzedAt, setAnalyzedAt] = useState(null);
   const [loadMsg, setLoadMsg] = useState("Connecting to the account...");
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("command");
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Calls our OWN serverless function — credentials live in Vercel env vars, never the browser.
-  const runAnalysis = async (d) => {
+  // Manual, on-demand. The ONLY thing in the app that spends API credits.
+  const runAnalysis = async (d, force = false) => {
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversations: d.conversations?.conversations || [],
+        contacts: d.contacts?.contacts || [],
+        appointments: d.appointments?.events || [],
+        force,
+      }),
+    });
+    return await res.json();
+  };
+
+  const getAnalysis = async (force = false) => {
+    if (!data || analyzing) return;
+    setAnalyzing(true);
     try {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversations: d.conversations?.conversations || [],
-          contacts: d.contacts?.contacts || [],
-          appointments: d.appointments?.events || [],
-        }),
-      });
-      return await res.json();
+      const ai = await runAnalysis(data, force);
+      setAnalysis(ai);
+      setAnalyzedAt(new Date());
     } catch {
-      return { summary: "AI analysis unavailable — metrics below are still computed from live data." };
+      setAnalysis({ summary: "AI analysis unavailable — metrics are still computed from live data. Try again." });
+    } finally {
+      setAnalyzing(false);
     }
   };
 
-  const load = async () => {
+  // Loads data only. No AI call here — analysis is manual.
+  const load = async (force = false) => {
     setStep("loading");
     setError(null);
     try {
-      setLoadMsg("Fetching account data from GHL...");
-      const res = await fetch("/api/ghl");
+      setLoadMsg(force ? "Forcing a fresh pull from GHL..." : "Fetching account data from GHL...");
+      const res = await fetch(`/api/ghl${force ? "?refresh=1" : ""}`);
       if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
       const raw = await res.json();
       if (raw.error) throw new Error(raw.detail ? `${raw.error}: ${raw.detail}` : raw.error);
@@ -385,8 +439,9 @@ export default function App() {
         appointments: raw.appointments || { events: [] },
       };
       setData(d);
-      setLoadMsg("Claude is reviewing the account...");
-      setAnalysis(await runAnalysis(d));
+      setAnalysis(null);      // clear stale insights so they always match current data
+      setAnalyzedAt(null);
+      setLastUpdated(new Date());
       setStep("dashboard");
     } catch (err) {
       setError(err.message || "Unknown error");
@@ -394,12 +449,12 @@ export default function App() {
     }
   };
 
-  const loadDemo = async () => {
-    setStep("loading");
+  const loadDemo = () => {
     setError(null);
     setData(DEMO);
-    setLoadMsg("Loading demo account...");
-    setAnalysis(await runAnalysis(DEMO));
+    setAnalysis(null);
+    setAnalyzedAt(null);
+    setLastUpdated(new Date());
     setStep("dashboard");
   };
 
@@ -424,14 +479,14 @@ export default function App() {
 
   if (step === "error") return (
     <div style={{ ...styles.app, ...styles.setup }}>
-      <style>{`body { margin: 0; }`}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } body { margin: 0; }`}</style>
       <div style={styles.card}>
         <div style={styles.logo}>
           <div style={styles.logoIcon}>🐀</div>
           <div><div style={styles.logoText}>360 Rodent Control</div><div style={styles.logoSub}>Team Admin Dashboard</div></div>
         </div>
         <div style={styles.errorBox}>{error}</div>
-        <button style={styles.btn} onClick={load}>Retry Live Connection</button>
+        <button style={styles.btn} onClick={() => load(false)}>Retry Live Connection</button>
         <button style={styles.btnGhost} onClick={loadDemo}>Load Demo Data Instead</button>
         <p style={styles.hint}>
           A live error usually means a missing env var (GHL_TOKEN, GHL_LOCATION_ID) or a token scope.
@@ -443,7 +498,7 @@ export default function App() {
 
   return (
     <div style={styles.app}>
-      <style>{`* { box-sizing: border-box; } body { margin: 0; }`}</style>
+      <style>{`* { box-sizing: border-box; } body { margin: 0; } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           <div style={styles.logoIcon}>🐀</div>
@@ -452,9 +507,10 @@ export default function App() {
             <div style={{ fontSize: "0.72rem", color: C.textFaint }}>Account Operations · Team Admin</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          {lastUpdated && <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Updated {fmtTime(lastUpdated)}</span>}
           <span style={styles.badge}>● Live</span>
-          <button style={styles.refreshBtn} onClick={load}>↻ Refresh</button>
+          <button style={styles.refreshBtn} onClick={() => load(true)}>↻ Refresh</button>
         </div>
       </div>
       <div style={styles.tabs}>
@@ -463,12 +519,12 @@ export default function App() {
         ))}
       </div>
       <div style={styles.content}>
-        {activeTab === "command" && <CommandCenter analysis={analysis} data={data} />}
+        {activeTab === "command" && <CommandCenter analysis={analysis} data={data} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} />}
         {activeTab === "leads" && <LeadIntake analysis={analysis} data={data} />}
         {activeTab === "campaigns" && <Campaigns analysis={analysis} data={data} />}
         {activeTab === "conversations" && <Conversations analysis={analysis} data={data} />}
         {activeTab === "appointments" && <Appointments analysis={analysis} data={data} />}
-        {activeTab === "ai" && <AIInsights analysis={analysis} />}
+        {activeTab === "ai" && <AIInsights analysis={analysis} analyzing={analyzing} analyzedAt={analyzedAt} onAnalyze={getAnalysis} />}
       </div>
     </div>
   );

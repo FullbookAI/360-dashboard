@@ -22,10 +22,11 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Prefer env vars; fall back to query params for ad-hoc testing.
   const token = process.env.GHL_TOKEN || req.query.token;
   const locationId = process.env.GHL_LOCATION_ID || req.query.locationId;
   if (!token || !locationId) return res.status(400).json({ error: "Missing GHL_TOKEN or GHL_LOCATION_ID" });
+
+  const bypass = req.query.refresh === "1" || req.query.refresh === "true";
 
   try {
     const now = Date.now();
@@ -51,11 +52,16 @@ export default async function handler(req, res) {
       appointmentsError = `${calendarList.error}${calendarList.detail ? `: ${calendarList.detail}` : ""}`;
     }
 
+    res.setHeader("Cache-Control", bypass
+      ? "no-store"
+      : "s-maxage=300, stale-while-revalidate=600");
+
     return res.status(200).json({
       conversations, contacts,
       appointments: appointmentsError ? { error: appointmentsError, events: [] } : { events },
     });
   } catch (err) {
+    res.setHeader("Cache-Control", "no-store");
     return res.status(200).json({ error: "proxy_failure", detail: err.message });
   }
 }
