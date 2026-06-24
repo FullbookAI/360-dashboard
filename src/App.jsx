@@ -74,52 +74,17 @@ function pct(n, d) { return d ? Math.round((n / d) * 100) : 0; }
 function fmtDate(d) { return d ? d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—"; }
 function fmtDateTime(d) { return d ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"; }
 
-function leadSource(c, convos = []) {
-  const tags = Array.isArray(c.tags) ? c.tags.join(" ").toLowerCase() : "";
-
-  // 1. Explicit source field set in GHL (manual or workflow) — highest priority, never overridden by UTM
+function leadSource(c) {
   const srcRaw = (c.source || c.sourceName || "").toString().trim();
-  if (srcRaw) {
-    const s = srcRaw.toLowerCase();
-    if (s.includes("facebook") || s.includes("fb") || s.includes("meta") || s.includes("instagram")) return "Facebook / Meta";
-    if (s.includes("google")) return "Google";
-    if (s.includes("form") || s.includes("web") || s.includes("landing") || s.includes("site")) return "Website Form";
-    if (s.includes("referr")) return "Referral";
-    if (s.includes("phone") || s.includes("call") || s.includes("inbound")) return "Phone / Inbound Call";
-    if (s.includes("manual") || s.includes("crm") || s.includes("import")) return "Manual Entry";
-    return srcRaw.charAt(0).toUpperCase() + srcRaw.slice(1);
-  }
-
-  // 2. Tags (secondary manual signal)
-  if (tags.includes("facebook") || tags.includes("meta") || tags.includes("instagram")) return "Facebook / Meta";
-  if (tags.includes("google")) return "Google";
-  if (tags.includes("referral")) return "Referral";
-  if (tags.includes("phone") || tags.includes("call") || tags.includes("inbound")) return "Phone / Inbound Call";
-
-  // 3. UTM attribution (only if no explicit source or tags)
-  const a = c.attributionSource || c.lastAttributionSource || {};
-  const utm = (a.utmCampaign || a.campaign || a.utmSource || a.source || "").toString().toLowerCase();
-  const medium = (a.medium || "").toLowerCase();
-  if (utm.includes("facebook") || utm.includes("fb") || utm.includes("meta") || utm.includes("instagram") ||
-      medium.includes("paid") || medium.includes("cpc")) return "Facebook / Meta";
-  if (utm.includes("google")) return "Google";
-  if (utm.includes("form") || utm.includes("web") || utm.includes("landing") || utm.includes("site")) return "Website Form";
-  if (utm.includes("referr")) return "Referral";
-  if (utm.includes("phone") || utm.includes("call") || utm.includes("inbound")) return "Phone / Inbound Call";
-  if (utm.includes("manual") || utm.includes("crm") || utm.includes("import")) return "Manual Entry";
-
-  // 4. Inbound call conversation fallback
-  if (convos.length) {
-    const cid = c.id;
-    const cname = getName(c);
-    const hasInboundCall = convos.some(cv =>
-      ((cid && cv.contactId && cv.contactId === cid) || nameMatch(getName(cv), cname)) &&
-      parseCall(cv.lastMessageBody || "").inbound
-    );
-    if (hasInboundCall) return "Phone / Inbound Call";
-  }
-
-  return "No Source";
+  if (!srcRaw) return "No Source";
+  const s = srcRaw.toLowerCase();
+  if (s.includes("facebook") || s.includes("fb") || s.includes("meta") || s.includes("instagram")) return "Facebook / Meta";
+  if (s.includes("google")) return "Google";
+  if (s.includes("form") || s.includes("web") || s.includes("landing") || s.includes("site")) return "Website Form";
+  if (s.includes("referr")) return "Referral";
+  if (s.includes("phone") || s.includes("call") || s.includes("inbound")) return "Phone / Inbound Call";
+  if (s.includes("manual") || s.includes("crm") || s.includes("import")) return "Manual Entry";
+  return srcRaw.charAt(0).toUpperCase() + srcRaw.slice(1);
 }
 
 function getName(obj) {
@@ -177,7 +142,7 @@ function buildFunnel(contacts, convos, events) {
   const smsConvos = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const sources = {};
   contacts.forEach(c => {
-    const src = leadSource(c, convos);
+    const src = leadSource(c);
     if (!sources[src]) sources[src] = { leads: 0, smsStarted: 0, replied: 0, booked: 0 };
     const d = sources[src];
     d.leads++;
@@ -203,7 +168,7 @@ function buildFunnelDetails(contacts, convos, events) {
   const smsConvos = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const result = {};
   contacts.forEach(c => {
-    const src = leadSource(c, convos);
+    const src = leadSource(c);
     if (!result[src]) result[src] = { leads: [], smsStarted: [], replied: [], booked: [] };
     const r = result[src];
     r.leads.push(c);
@@ -417,34 +382,36 @@ function DrillDownModal({ modal, onClose }) {
 
 // ─── tabs ─────────────────────────────────────────────────────────────────────
 
-function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeRange, onDrill }) {
+function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDrill }) {
   const contacts = data?.contacts?.contacts || [];
   const convos = data?.conversations?.conversations || [];
   const events = data?.appointments?.events || [];
-  const newTodayList = contacts.filter(c => isToday(leadDate(c)));
-  const needsReply = convos.filter(c => (c.unreadCount || 0) > 0);
-  const upcoming = events.filter(e => { const d = toDate(e.startTime); return d && d.getTime() >= Date.now(); });
-  const unconfirmed = upcoming.filter(e => withinDays(toDate(e.startTime), 2) && e.appointmentStatus !== "confirmed");
-  const calls = convos.filter(c => isCall(c));
-  const answeredCalls = calls.filter(c => parseCall(c.lastMessageBody).answered);
+
   const smsThreads = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
-  const bookRate = contacts.length ? Math.round((events.length / contacts.length) * 100) : 0;
-  const rangeLabel = timeRange === 7 ? "7 days" : timeRange === 30 ? "30 days" : timeRange === 90 ? "90 days" : "all time";
+  const allReplied = convos.filter(c => (c.unreadCount || 0) > 0);
+  const callThreads = convos.filter(c => isCall(c));
+
+  // Profiling stages — group contacts by their tags
+  const tagCounts = {};
+  contacts.forEach(c => {
+    const tags = Array.isArray(c.tags) ? c.tags.map(t => t.trim()).filter(Boolean) : [];
+    if (tags.length === 0) { tagCounts["Not Profiled"] = (tagCounts["Not Profiled"] || 0) + 1; }
+    else { tags.forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }); }
+  });
+  const stages = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
 
   const toContactRows = (list) => list.map(c => ({
     primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
     secondary: `${c.phone || "No phone"} · Added ${fmtDate(leadDate(c))}`,
-    badge: leadSource(c, convos),
+    badge: leadSource(c),
     badgeAccent: C.amber,
   }));
-
   const toConvoRows = (list) => list.map(c => ({
     primary: c.contactName || c.fullName || "Unknown",
     secondary: `${(c.lastMessageBody || "No preview").slice(0, 80)} · ${fmtDate(convDate(c))}`,
     badge: c.unreadCount > 0 ? `${c.unreadCount} unread` : undefined,
     badgeAccent: C.red,
   }));
-
   const toCallRows = (list) => list.map(c => {
     const p = parseCall(c.lastMessageBody);
     const dMin = Math.floor(p.duration / 60), dSec = p.duration % 60;
@@ -455,7 +422,6 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeR
       badgeAccent: p.answered ? C.green : C.red,
     };
   });
-
   const toEventRows = (list) => list.map(e => ({
     primary: e.title || e.name || "Appointment",
     secondary: `${fmtDateTime(toDate(e.startTime))}${e.assignedUserId ? ` · ${e.assignedUserId}` : ""}`,
@@ -463,30 +429,32 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeR
     badgeAccent: (e.appointmentStatus === "confirmed" || e.appointmentStatus === "showed") ? C.green : C.textDim,
   }));
 
-  const queue = [];
-  if (needsReply.length) queue.push({ icon: "💬", color: C.blue, title: `${needsReply.length} conversation${needsReply.length > 1 ? "s" : ""} awaiting reply`, sub: needsReply.slice(0, 3).map(c => c.contactName || "Unknown").join(", ") + (needsReply.length > 3 ? "…" : "") });
-  if (unconfirmed.length) queue.push({ icon: "📅", color: C.amber, title: `${unconfirmed.length} appointment${unconfirmed.length > 1 ? "s" : ""} unconfirmed in next 48h`, sub: "Send confirmation texts to reduce no-shows" });
-  if (newTodayList.length) queue.push({ icon: "🎯", color: C.green, title: `${newTodayList.length} new lead${newTodayList.length > 1 ? "s" : ""} today`, sub: "Aim to make first contact within 5 minutes" });
-  if (!queue.length) queue.push({ icon: "✓", color: C.green, title: "All clear", sub: "No urgent items in the queue right now" });
-
   return (
     <div>
       <div style={styles.grid}>
-        <StatCard label="New Leads Today" value={newTodayList.length} sub={`${contacts.length} in ${rangeLabel}`} accent={C.green} onClick={newTodayList.length ? () => onDrill?.("New Leads Today", toContactRows(newTodayList)) : undefined} />
-        <StatCard label="Awaiting Reply" value={needsReply.length} sub={`${smsThreads.length} SMS threads total`} accent={needsReply.length ? C.red : C.text} onClick={needsReply.length ? () => onDrill?.("Awaiting Reply", toConvoRows(needsReply)) : undefined} />
-        <StatCard label="Calls Answered" value={answeredCalls.length} sub={`of ${calls.length} calls — ${pct(answeredCalls.length, calls.length)}% rate`} accent={C.green} onClick={answeredCalls.length ? () => onDrill?.("Answered Calls", toCallRows(answeredCalls)) : undefined} />
-        <StatCard label="Upcoming Appts" value={upcoming.length} sub={`${unconfirmed.length} unconfirmed`} accent={C.amber} onClick={upcoming.length ? () => onDrill?.("Upcoming Appointments", toEventRows(upcoming)) : undefined} />
-        <StatCard label="Booking Rate" value={`${bookRate}%`} sub={`${events.length} appts / ${contacts.length} leads`} onClick={events.length ? () => onDrill?.("All Appointments", toEventRows(events)) : undefined} />
+        <StatCard label="Total Leads" value={contacts.length} accent={C.green} onClick={contacts.length ? () => onDrill?.("Total Leads", toContactRows(contacts)) : undefined} />
+        <StatCard label="SMS Conversations" value={smsThreads.length} onClick={smsThreads.length ? () => onDrill?.("SMS Conversations", toConvoRows(smsThreads)) : undefined} />
+        <StatCard label="Total Replied" value={allReplied.length} accent={allReplied.length ? C.green : C.textDim} onClick={allReplied.length ? () => onDrill?.("Replied Conversations", toConvoRows(allReplied)) : undefined} />
+        <StatCard label="Call Conversations" value={callThreads.length} accent={C.blue} onClick={callThreads.length ? () => onDrill?.("Call Conversations", toCallRows(callThreads)) : undefined} />
+        <StatCard label="Total Bookings" value={events.length} accent={C.amber} onClick={events.length ? () => onDrill?.("All Bookings", toEventRows(events)) : undefined} />
       </div>
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>⚡ Action Queue</div>
-        {queue.map((q, i) => (
-          <div key={i} style={styles.actionItem}>
-            <div style={{ ...styles.actionIcon, background: `${q.color}22`, color: q.color }}>{q.icon}</div>
-            <div><div style={styles.actionTitle}>{q.title}</div><div style={styles.actionSub}>{q.sub}</div></div>
+
+      {stages.length > 0 && (
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>Profiling Stages</div>
+          <div style={{ ...styles.grid, marginBottom: 0 }}>
+            {stages.map(([tag, count]) => (
+              <StatCard key={tag} label={tag} value={count}
+                onClick={() => onDrill?.(`Stage: ${tag}`, toContactRows(contacts.filter(c => {
+                  if (tag === "Not Profiled") return !c.tags || c.tags.length === 0;
+                  return Array.isArray(c.tags) && c.tags.map(t => t.trim()).includes(tag);
+                })))}
+              />
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
       <div style={styles.section}>
         <div style={styles.sectionTitle}>
           <span>AI Account Health</span>
@@ -550,7 +518,7 @@ function LeadFunnel({ analysis, data, callDetails = [], onDrill }) {
   const toContactRows = (list) => list.map(c => ({
     primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
     secondary: `${c.phone || "No phone"} · Added ${fmtDate(leadDate(c))}`,
-    badge: leadSource(c, convos),
+    badge: leadSource(c),
     badgeAccent: C.amber,
   }));
 
@@ -666,66 +634,22 @@ function LeadFunnel({ analysis, data, callDetails = [], onDrill }) {
   );
 }
 
-function Campaigns({ analysis, data, onDrill }) {
+function Conversations({ data, onDrill }) {
   const contacts = data?.contacts?.contacts || [];
   const convos = data?.conversations?.conversations || [];
-  const events = data?.appointments?.events || [];
-  const bySource = {};
-  contacts.forEach(c => {
-    const s = leadSource(c, convos);
-    if (!bySource[s]) bySource[s] = { leads: 0, contacts: [] };
-    bySource[s].leads++;
-    bySource[s].contacts.push(c);
-  });
-  const arr = Object.entries(bySource).sort((a, b) => b[1].leads - a[1].leads);
-  const maxLeads = arr[0]?.[1].leads || 1;
-  const fbLeads = bySource["Facebook / Meta"]?.leads || 0;
 
-  const toContactRows = (list) => list.map(c => ({
-    primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
-    secondary: `${c.phone || "No phone"} · Added ${fmtDate(leadDate(c))}`,
-    badge: (c.attributionSource?.utmCampaign || c.attributionSource?.campaign) || undefined,
-    badgeAccent: C.blue,
-  }));
-
-  const toEventRows = (list) => list.map(e => ({
-    primary: e.title || e.name || "Appointment",
-    secondary: `${fmtDateTime(toDate(e.startTime))}${e.assignedUserId ? ` · ${e.assignedUserId}` : ""}`,
-    badge: e.appointmentStatus || "scheduled",
-    badgeAccent: (e.appointmentStatus === "confirmed" || e.appointmentStatus === "showed") ? C.green : C.textDim,
-  }));
-
-  return (
-    <div>
-      <div style={styles.grid}>
-        <StatCard label="Facebook Leads" value={fbLeads} sub="attributed to Meta" accent={C.blue} onClick={fbLeads ? () => onDrill?.("Facebook / Meta Leads", toContactRows(bySource["Facebook / Meta"]?.contacts || [])) : undefined} />
-        <StatCard label="Total Sources" value={arr.length} sub="active channels" />
-        <StatCard label="Appointments" value={events.length} sub="booked in range" accent={C.amber} onClick={events.length ? () => onDrill?.("Appointments", toEventRows(events)) : undefined} />
-      </div>
-      {analysis?.campaignInsights && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>AI Insights — Campaign Quality</div>
-          <BulletList items={analysis.campaignInsights} />
-        </div>
-      )}
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Lead Volume by Channel</div>
-        {arr.length === 0 && <div style={styles.insightText}>No attribution data in the selected range.</div>}
-        {arr.map(([s, v]) => <BarRow key={s} label={s} value={v.leads} max={maxLeads} accent={s.includes("Facebook") ? C.blue : C.amber} onClick={() => onDrill?.(`${s} — Leads`, toContactRows(v.contacts))} />)}
-        <p style={styles.note}>Ad spend, CPL, and ROAS live in the Meta Ads API — connect that source to surface true cost-per-lead here.</p>
-      </div>
-    </div>
-  );
-}
-
-function Conversations({ analysis, data, onDrill }) {
-  const convos = data?.conversations?.conversations || [];
   const smsThreads = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const emailThreads = convos.filter(c => convCategory(c.type) === "email");
   const callThreads = convos.filter(c => isCall(c));
-  const smsWithReply = smsThreads.filter(c => (c.unreadCount || 0) > 0);
-  const smsNoReply = smsThreads.filter(c => (c.unreadCount || 0) === 0);
-  const allUnread = convos.filter(c => (c.unreadCount || 0) > 0);
+  const parsedCalls = callThreads.map(c => ({ ...c, ...parseCall(c.lastMessageBody) }));
+  const allReplied = convos.filter(c => (c.unreadCount || 0) > 0);
+  const totalCallSec = parsedCalls.reduce((s, c) => s + (c.duration || 0), 0);
+  const callH = Math.floor(totalCallSec / 3600), callM = Math.floor((totalCallSec % 3600) / 60);
+  const callTimeLabel = totalCallSec ? (callH > 0 ? `${callH}h ${callM}m` : `${callM}m`) : "0m";
+
+  // Profiling counts based on contact tags
+  const profilingStarted = contacts.filter(c => Array.isArray(c.tags) && c.tags.some(t => /profil/i.test(t) && !/complet|done|finish|end/i.test(t))).length;
+  const profilingEnded = contacts.filter(c => Array.isArray(c.tags) && c.tags.some(t => /profil/i.test(t) && /complet|done|finish|end/i.test(t))).length;
 
   const toConvoRows = (list) => list.map(c => {
     const cat = convCategory(c.type, c.lastMessageBody);
@@ -739,10 +663,6 @@ function Conversations({ analysis, data, onDrill }) {
       badge2Accent: C.red,
     };
   });
-
-  // Tally raw types from GHL so we can verify categorisation
-  const rawTypes = {};
-  convos.forEach(c => { const t = String(c.type ?? "none"); rawTypes[t] = (rawTypes[t] || 0) + 1; });
 
   const catMeta = {
     call:      { bg: "#0D2E1A", color: C.green, label: "Call" },
@@ -758,22 +678,18 @@ function Conversations({ analysis, data, onDrill }) {
   return (
     <div>
       <div style={styles.grid}>
-        <StatCard label="SMS Threads" value={smsThreads.length} onClick={smsThreads.length ? () => onDrill?.("SMS Threads", toConvoRows(smsThreads)) : undefined} />
-        <StatCard label="Lead Replied (unread)" value={smsWithReply.length} sub={`${pct(smsWithReply.length, smsThreads.length)}% reply rate`} accent={smsWithReply.length ? C.green : C.textDim} onClick={smsWithReply.length ? () => onDrill?.("Leads With Unread SMS", toConvoRows(smsWithReply)) : undefined} />
-        <StatCard label="No Active Reply" value={smsNoReply.length} sub="handled or no response" accent={smsNoReply.length > smsWithReply.length ? C.red : C.textDim} onClick={smsNoReply.length ? () => onDrill?.("SMS — No Active Reply", toConvoRows(smsNoReply)) : undefined} />
-        <StatCard label="Email Threads" value={emailThreads.length} accent={C.amber} onClick={emailThreads.length ? () => onDrill?.("Email Threads", toConvoRows(emailThreads)) : undefined} />
-        <StatCard label="Total Unread" value={allUnread.length} sub="across all channels" accent={allUnread.length ? C.red : C.text} onClick={allUnread.length ? () => onDrill?.("All Unread Conversations", toConvoRows(allUnread)) : undefined} />
+        <StatCard label="Total SMS" value={smsThreads.length} onClick={smsThreads.length ? () => onDrill?.("SMS Conversations", toConvoRows(smsThreads)) : undefined} />
+        <StatCard label="Total Email" value={emailThreads.length} accent={C.amber} onClick={emailThreads.length ? () => onDrill?.("Email Conversations", toConvoRows(emailThreads)) : undefined} />
+        <StatCard label="Total Replies" value={allReplied.length} accent={allReplied.length ? C.green : C.textDim} onClick={allReplied.length ? () => onDrill?.("Replied Conversations", toConvoRows(allReplied)) : undefined} />
+        <StatCard label="Total Phone Calls" value={callThreads.length} accent={C.blue} onClick={callThreads.length ? () => onDrill?.("Phone Calls", toConvoRows(callThreads)) : undefined} />
+        <StatCard label="Total Call Time" value={callTimeLabel} sub={`${parsedCalls.filter(c => c.answered).length} answered`} />
+        {profilingStarted > 0 && <StatCard label="Profiling Started" value={profilingStarted} accent={C.purple} />}
+        {profilingEnded > 0 && <StatCard label="Profiling Ended" value={profilingEnded} accent={C.green} />}
       </div>
-      {analysis?.conversationInsights && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>AI Insights — Response SLA</div>
-          <BulletList items={analysis.conversationInsights} />
-        </div>
-      )}
       <div style={styles.section}>
-        <div style={styles.sectionTitle}>Recent Conversations</div>
+        <div style={styles.sectionTitle}>All Conversations</div>
         {convos.length === 0 && <div style={styles.insightText}>No conversation data in the selected range.</div>}
-        {convos.slice(0, 25).map((c, i) => {
+        {convos.map((c, i) => {
           const cat = convCategory(c.type, c.lastMessageBody);
           const meta = catMeta[cat] || catMeta.other;
           const hasReply = (c.unreadCount || 0) > 0;
@@ -793,68 +709,35 @@ function Conversations({ analysis, data, onDrill }) {
             </div>
           );
         })}
-        {Object.keys(rawTypes).length > 0 && (
-          <p style={{ ...styles.note, marginTop: "14px" }}>
-            GHL channel types in this data: {Object.entries(rawTypes).map(([t, n]) => `${t} (${n})`).join(" · ")}
-          </p>
-        )}
       </div>
     </div>
   );
 }
 
-function Appointments({ analysis, data, onDrill }) {
+function Appointments({ data }) {
   const events = data?.appointments?.events || [];
   const sorted = [...events].sort((a, b) => (toDate(a.startTime)?.getTime() || 0) - (toDate(b.startTime)?.getTime() || 0));
-  const upcoming = sorted.filter(e => (toDate(e.startTime)?.getTime() || 0) >= Date.now());
-  const past = sorted.filter(e => (toDate(e.startTime)?.getTime() || 0) < Date.now());
-  const confirmedList = upcoming.filter(e => e.appointmentStatus === "confirmed");
-  const atRiskList = upcoming.filter(e => e.appointmentStatus !== "confirmed");
-  const showedList = past.filter(e => e.appointmentStatus === "showed");
-  const showRate = past.length ? pct(showedList.length, past.length) : null;
-
-  const toEventRows = (list) => list.map(e => ({
-    primary: e.title || e.name || "Appointment",
-    secondary: `${fmtDateTime(toDate(e.startTime))}${e.assignedUserId ? ` · ${e.assignedUserId}` : ""}`,
-    badge: e.appointmentStatus || "scheduled",
-    badgeAccent: (e.appointmentStatus === "confirmed" || e.appointmentStatus === "showed") ? C.green : e.appointmentStatus === "cancelled" ? C.red : C.textDim,
-  }));
 
   return (
-    <div>
-      <div style={styles.grid}>
-        <StatCard label="Upcoming" value={upcoming.length} accent={C.amber} onClick={upcoming.length ? () => onDrill?.("Upcoming Appointments", toEventRows(upcoming)) : undefined} />
-        <StatCard label="Confirmed" value={confirmedList.length} sub={`of ${upcoming.length} upcoming`} accent={C.green} onClick={confirmedList.length ? () => onDrill?.("Confirmed Appointments", toEventRows(confirmedList)) : undefined} />
-        <StatCard label="At Risk" value={atRiskList.length} sub="unconfirmed upcoming" accent={atRiskList.length ? C.red : C.textDim} onClick={atRiskList.length ? () => onDrill?.("Unconfirmed Appointments", toEventRows(atRiskList)) : undefined} />
-        {showRate !== null && <StatCard label="Show Rate" value={`${showRate}%`} sub={`${showedList.length} showed / ${past.length} past`} accent={C.blue} onClick={past.length ? () => onDrill?.("Past Appointments", toEventRows(past)) : undefined} />}
-      </div>
-      {analysis?.appointmentInsights && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>AI Insights — Booking & No-Show Risk</div>
-          <BulletList items={analysis.appointmentInsights} />
-        </div>
-      )}
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Schedule ({events.length})</div>
-        {events.length === 0 && <div style={styles.insightText}>No appointments in the selected range.</div>}
-        {sorted.slice(0, 30).map((e, i) => {
-          const d = toDate(e.startTime);
-          const isPast = d && d.getTime() < Date.now();
-          const conf = e.appointmentStatus === "confirmed";
-          const didShow = e.appointmentStatus === "showed";
-          return (
-            <div key={i} style={styles.row}>
-              <div>
-                <div style={{ ...styles.rowName, color: isPast ? C.textDim : C.text }}>{e.title || e.name || "Appointment"}</div>
-                <div style={styles.rowSub}>{d ? d.toLocaleString() : "—"}{e.assignedUserId ? ` · ${e.assignedUserId}` : ""}</div>
-              </div>
-              <span style={{ ...styles.pill, background: (conf || didShow) ? "#0D2E1A" : C.bg, color: (conf || didShow) ? C.green : C.textDim }}>
-                {e.appointmentStatus || "scheduled"}
-              </span>
+    <div style={styles.section}>
+      {sorted.length === 0 && <div style={styles.insightText}>No appointments in the selected range.</div>}
+      {sorted.map((e, i) => {
+        const d = toDate(e.startTime);
+        const isPast = d && d.getTime() < Date.now();
+        const conf = e.appointmentStatus === "confirmed";
+        const didShow = e.appointmentStatus === "showed";
+        return (
+          <div key={i} style={styles.row}>
+            <div>
+              <div style={{ ...styles.rowName, color: isPast ? C.textDim : C.text }}>{e.title || e.name || "Appointment"}</div>
+              <div style={styles.rowSub}>{d ? d.toLocaleString() : "—"}{e.assignedUserId ? ` · ${e.assignedUserId}` : ""}</div>
             </div>
-          );
-        })}
-      </div>
+            <span style={{ ...styles.pill, background: (conf || didShow) ? "#0D2E1A" : C.bg, color: (conf || didShow) ? C.green : C.textDim }}>
+              {e.appointmentStatus || "scheduled"}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -941,6 +824,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("command");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [timeRange, setTimeRange] = useState(30);
+  const [sourceFilter, setSourceFilter] = useState(null);
   const [modal, setModal] = useState(null);
 
   const openDrill = (title, rows) => setModal({ title, rows });
@@ -959,10 +843,18 @@ export default function App() {
     return !timeRange || withinDays(d, timeRange);
   });
 
+  // Source filter applied on top of time filter
+  const allSources = [...new Set(rawContacts.map(c => leadSource(c)).filter(s => s !== "No Source"))].sort();
+  const sfContacts = sourceFilter ? fContacts.filter(c => leadSource(c) === sourceFilter) : fContacts;
+  const sfIds = new Set(sfContacts.map(c => c.id).filter(Boolean));
+  const sfNames = new Set(sfContacts.map(c => getName(c)).filter(Boolean));
+  const sfConvos = sourceFilter ? fConvos.filter(c => (c.contactId && sfIds.has(c.contactId)) || sfNames.has(getName(c))) : fConvos;
+  const sfEvents = sourceFilter ? fEvents.filter(e => (e.contactId && sfIds.has(e.contactId)) || sfContacts.some(c => nameMatch(e.title || "", getName(c)))) : fEvents;
+
   const filteredData = {
-    contacts: { contacts: fContacts },
-    conversations: { conversations: fConvos },
-    appointments: { events: fEvents },
+    contacts: { contacts: sfContacts },
+    conversations: { conversations: sfConvos },
+    appointments: { events: sfEvents },
   };
 
   const runAnalysis = async (d, force = false) => {
@@ -1029,9 +921,8 @@ export default function App() {
   useEffect(() => { load(); }, []);
 
   const tabs = [
-    { id: "command", label: "Command Center" },
+    { id: "command", label: "Overview" },
     { id: "funnel", label: "Lead Funnel" },
-    { id: "campaigns", label: "Campaigns" },
     { id: "conversations", label: "Conversations" },
     { id: "appointments", label: "Appointments" },
     { id: "ai", label: "AI Insights" },
@@ -1074,6 +965,18 @@ export default function App() {
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           <TimeRangePicker value={timeRange} onChange={setTimeRange} />
+          {allSources.length > 0 && (
+            <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+              <span style={{ fontSize: "0.72rem", color: C.textFaint, marginRight: "2px" }}>Source:</span>
+              <button onClick={() => setSourceFilter(null)} style={{ ...styles.rangeBtn, ...(sourceFilter === null ? styles.rangeBtnActive : {}) }}>All</button>
+              {allSources.map(s => (
+                <button key={s} onClick={() => setSourceFilter(s === sourceFilter ? null : s)}
+                  style={{ ...styles.rangeBtn, ...(sourceFilter === s ? styles.rangeBtnActive : {}) }}>
+                  {s.replace("Facebook / Meta", "FB").replace("Phone / Inbound Call", "Phone").replace("Website Form", "Web").replace("Manual Entry", "Manual")}
+                </button>
+              ))}
+            </div>
+          )}
           {lastUpdated && <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Updated {fmtTime(lastUpdated)}</span>}
           <span style={styles.badge}>● Live</span>
           <button style={styles.refreshBtn} onClick={() => load(true)}>↻ Refresh</button>
@@ -1085,11 +988,10 @@ export default function App() {
         ))}
       </div>
       <div style={styles.content}>
-        {activeTab === "command" && <CommandCenter analysis={analysis} data={filteredData} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} timeRange={timeRange} onDrill={openDrill} />}
+        {activeTab === "command" && <CommandCenter analysis={analysis} data={filteredData} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} onDrill={openDrill} />}
         {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} callDetails={callDetails} onDrill={openDrill} />}
-        {activeTab === "campaigns" && <Campaigns analysis={analysis} data={filteredData} onDrill={openDrill} />}
-        {activeTab === "conversations" && <Conversations analysis={analysis} data={filteredData} onDrill={openDrill} />}
-        {activeTab === "appointments" && <Appointments analysis={analysis} data={filteredData} onDrill={openDrill} />}
+        {activeTab === "conversations" && <Conversations data={filteredData} onDrill={openDrill} />}
+        {activeTab === "appointments" && <Appointments data={filteredData} />}
         {activeTab === "ai" && <AIInsights analysis={analysis} analyzing={analyzing} analyzedAt={analyzedAt} onAnalyze={getAnalysis} />}
       </div>
       <DrillDownModal modal={modal} onClose={closeDrill} />
