@@ -49,76 +49,39 @@ async function fetchAllConversations(locationId, token) {
   return { conversations: all };
 }
 
-// Try multiple strategies to get appointments — GHL endpoint behaviour varies by account setup.
 async function fetchAppointments(locationId, token, start, end) {
-  const debug = {};
-
-  // Strategy 1: location-wide events (no calendarId required)
-  const direct = await ghlFetch(
-    `${GHL_BASE}/calendars/events?locationId=${locationId}&startTime=${start}&endTime=${end}`,
-    token
-  );
-  debug.directEvents = direct.error
-    ? { error: direct.error, detail: direct.detail }
-    : { count: Array.isArray(direct.events) ? direct.events.length : "not-array", keys: Object.keys(direct) };
-
-  if (!direct.error && Array.isArray(direct.events) && direct.events.length > 0) {
-    return { events: direct.events, _apptDebug: debug };
-  }
-
-  // Strategy 2: enumerate calendars, then fetch per calendar
   const calendarList = await ghlFetch(`${GHL_BASE}/calendars/?locationId=${locationId}`, token);
-  debug.calendarList = calendarList.error
-    ? { error: calendarList.error, detail: calendarList.detail }
-    : { count: Array.isArray(calendarList.calendars) ? calendarList.calendars.length : "not-array", keys: Object.keys(calendarList) };
 
   const allCalendars = Array.isArray(calendarList?.calendars) ? calendarList.calendars : [];
-  // Keep business calendars; skip purely personal ones (no pest-control keyword in name)
-  const businessKeywords = ["inspection", "rodent", "treatment", "360", "offer", "pest", "control"];
+
+  // Skip purely personal calendars that have no business keyword in their name
+  const bizKeywords = ["inspection", "rodent", "treatment", "360", "offer", "pest", "control"];
   const calendars = allCalendars.filter(cal => {
     const name = (cal.name || "").toLowerCase();
     const isPersonal = name.includes("personal calendar");
-    const hasBizKeyword = businessKeywords.some(k => name.includes(k));
+    const hasBizKeyword = bizKeywords.some(k => name.includes(k));
     return !isPersonal || hasBizKeyword;
   });
-  debug.calendarFilter = {
-    total: allCalendars.length,
-    kept: calendars.length,
-    skipped: allCalendars.filter(c => !calendars.includes(c)).map(c => c.name),
-  };
-  if (calendars.length > 0) {
-    const results = await Promise.all(
-      calendars.slice(0, 10).map((cal) =>
-        ghlFetch(
-          `${GHL_BASE}/calendars/events?locationId=${locationId}&calendarId=${cal.id}&startTime=${start}&endTime=${end}`,
-          token
-        )
+
+  if (calendarList?.error) {
+    return { events: [], error: `${calendarList.error}${calendarList.detail ? `: ${calendarList.detail}` : ""}` };
+  }
+
+  if (calendars.length === 0) {
+    return { events: [], error: "no_business_calendars_found" };
+  }
+
+  const results = await Promise.all(
+    calendars.map((cal) =>
+      ghlFetch(
+        `${GHL_BASE}/calendars/events?locationId=${locationId}&calendarId=${cal.id}&startTime=${start}&endTime=${end}`,
+        token
       )
-    );
-    debug.perCalendar = results.map((r, i) => ({
-      id: calendars[i].id,
-      name: calendars[i].name,
-      count: Array.isArray(r?.events) ? r.events.length : "not-array",
-      error: r.error || null,
-    }));
-    const events = results.flatMap((r) => (Array.isArray(r?.events) ? r.events : []));
-    return { events, _apptDebug: debug };
-  }
-
-  // Strategy 3: appointments endpoint (alternative GHL path)
-  const appts = await ghlFetch(
-    `${GHL_BASE}/appointments/?locationId=${locationId}&startTime=${start}&endTime=${end}`,
-    token
+    )
   );
-  debug.appointmentsEndpoint = appts.error
-    ? { error: appts.error, detail: appts.detail }
-    : { count: Array.isArray(appts.appointments) ? appts.appointments.length : "not-array", keys: Object.keys(appts) };
 
-  if (!appts.error && Array.isArray(appts.appointments)) {
-    return { events: appts.appointments, _apptDebug: debug };
-  }
-
-  return { events: [], error: "no_appointments_found", _apptDebug: debug };
+  const events = results.flatMap((r) => (Array.isArray(r?.events) ? r.events : []));
+  return { events };
 }
 
 export default async function handler(req, res) {
@@ -135,7 +98,6 @@ export default async function handler(req, res) {
 
   try {
     const now = Date.now();
-    // Wide window: 90 days back, 90 days forward
     const start = now - 90 * 24 * 60 * 60 * 1000;
     const end   = now + 90 * 24 * 60 * 60 * 1000;
 
@@ -156,7 +118,6 @@ export default async function handler(req, res) {
         conversations: conversations.conversations?.length ?? 0,
         events: appointments.events?.length ?? 0,
       },
-      _apptDebug: appointments._apptDebug,
     });
   } catch (err) {
     res.setHeader("Cache-Control", "no-store");
