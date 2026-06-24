@@ -71,6 +71,8 @@ function leadDate(c) { return toDate(c.dateAdded || c.createdAt || c.dateUpdated
 function convDate(c) { return toDate(c.lastMessageDate || c.dateAdded); }
 function fmtTime(d) { return d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""; }
 function pct(n, d) { return d ? Math.round((n / d) * 100) : 0; }
+function fmtDate(d) { return d ? d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—"; }
+function fmtDateTime(d) { return d ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"; }
 
 function leadSource(c) {
   const a = c.attributionSource || c.lastAttributionSource || {};
@@ -167,6 +169,31 @@ function buildFunnel(contacts, convos, events) {
   return Object.entries(sources).sort((a, b) => b[1].leads - a[1].leads);
 }
 
+function buildFunnelDetails(contacts, convos, events) {
+  const smsConvos = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
+  const result = {};
+  contacts.forEach(c => {
+    const src = leadSource(c);
+    if (!result[src]) result[src] = { leads: [], smsStarted: [], replied: [], booked: [] };
+    const r = result[src];
+    r.leads.push(c);
+    const cid = c.id;
+    const cname = getName(c);
+    const matched = smsConvos.find(cv =>
+      (cid && cv.contactId && cv.contactId === cid) || nameMatch(getName(cv), cname)
+    );
+    if (matched) {
+      r.smsStarted.push(matched);
+      if ((matched.unreadCount || 0) > 0) r.replied.push(matched);
+    }
+    const appt = events.find(e =>
+      (cid && e.contactId && e.contactId === cid) || nameMatch(e.title || "", cname)
+    );
+    if (appt) r.booked.push(appt);
+  });
+  return result;
+}
+
 // ─── demo data ────────────────────────────────────────────────────────────────
 const _now = Date.now();
 const _h = (h) => new Date(_now + h * 3600000).toISOString();
@@ -217,37 +244,50 @@ const DEMO = {
 };
 
 // ─── shared components ────────────────────────────────────────────────────────
-function StatCard({ label, value, sub, accent }) {
+function StatCard({ label, value, sub, accent, onClick }) {
   return (
-    <div style={styles.statCard}>
+    <div
+      style={{ ...styles.statCard, ...(onClick ? { cursor: "pointer", borderColor: C.blue + "55" } : {}) }}
+      onClick={onClick}
+      title={onClick ? "Click to see details" : undefined}
+    >
       <div style={styles.statLabel}>{label}</div>
-      <div style={{ ...styles.statValue, color: accent || C.text }}>{value}</div>
+      <div style={{ ...styles.statValue, color: accent || C.text, ...(onClick ? { textDecoration: "underline dotted", textUnderlineOffset: "3px" } : {}) }}>{value}</div>
       {sub && <div style={{ ...styles.statSub, color: accent === C.red ? C.red : C.textDim }}>{sub}</div>}
     </div>
   );
 }
 
-function BarRow({ label, value, max, accent }) {
+function BarRow({ label, value, max, accent, onClick }) {
   const p = max ? Math.max(4, (value / max) * 100) : 4;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 0" }}>
+    <div
+      style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 0", cursor: onClick ? "pointer" : "default" }}
+      onClick={onClick}
+      title={onClick ? "Click to see details" : undefined}
+    >
       <div style={{ width: "130px", fontSize: "0.82rem", color: C.textMute }}>{label}</div>
       <div style={styles.barTrack}><div style={{ ...styles.bar, width: `${p}%`, background: accent || C.amber }} /></div>
-      <div style={{ width: "36px", textAlign: "right", fontSize: "0.85rem", color: C.text, fontWeight: "600" }}>{value}</div>
+      <div style={{ width: "36px", textAlign: "right", fontSize: "0.85rem", color: C.text, fontWeight: "600", ...(onClick ? { textDecoration: "underline dotted", textUnderlineOffset: "3px" } : {}) }}>{value}</div>
     </div>
   );
 }
 
-function FunnelStage({ label, count, base, accent }) {
+function FunnelStage({ label, count, base, accent, onClick }) {
   const p = base ? Math.round((count / base) * 100) : 0;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 0" }}>
+    <div
+      style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 0", cursor: onClick && count > 0 ? "pointer" : "default" }}
+      onClick={onClick && count > 0 ? onClick : undefined}
+      title={onClick && count > 0 ? "Click to see details" : undefined}
+    >
       <div style={{ width: "160px", fontSize: "0.8rem", color: C.textMute, flexShrink: 0 }}>{label}</div>
       <div style={styles.barTrack}>
         <div style={{ ...styles.bar, width: `${Math.max(p, 3)}%`, background: accent || C.amber }} />
       </div>
       <div style={{ minWidth: "90px", textAlign: "right", fontSize: "0.82rem", color: C.text }}>
-        {count} <span style={{ color: C.textFaint, fontWeight: "400" }}>({p}%)</span>
+        <span style={onClick && count > 0 ? { textDecoration: "underline dotted", textUnderlineOffset: "3px" } : {}}>{count}</span>
+        {" "}<span style={{ color: C.textFaint, fontWeight: "400" }}>({p}%)</span>
       </div>
     </div>
   );
@@ -294,13 +334,64 @@ function AnalyzePrompt({ onAnalyze, analyzing }) {
   );
 }
 
+function DrillDownModal({ modal, onClose }) {
+  useEffect(() => {
+    if (!modal) return;
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [modal, onClose]);
+
+  if (!modal) return null;
+  const { title, rows } = modal;
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: "12px", width: "100%", maxWidth: "680px", maxHeight: "82vh", display: "flex", flexDirection: "column" }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.2rem", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: "0.95rem", fontWeight: "700", color: C.text }}>{title}</div>
+            <div style={{ fontSize: "0.74rem", color: C.textFaint, marginTop: "2px" }}>{rows.length} record{rows.length !== 1 ? "s" : ""}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: C.textDim, cursor: "pointer", fontSize: "1.2rem", padding: "4px 8px", lineHeight: 1 }}>✕</button>
+        </div>
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {rows.length === 0 && <div style={{ padding: "2rem", color: C.textFaint, fontSize: "0.88rem", textAlign: "center" }}>No records found.</div>}
+          {rows.map((row, i) => (
+            <div key={i} style={{ padding: "0.8rem 1.2rem", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.88rem", fontWeight: "600", color: C.text, marginBottom: "3px" }}>{row.primary}</div>
+                <div style={{ fontSize: "0.78rem", color: C.textDim, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{row.secondary}</div>
+              </div>
+              <div style={{ display: "flex", gap: "5px", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end", marginTop: "1px" }}>
+                {row.badge && (
+                  <span style={{ ...styles.pill, background: (row.badgeAccent || C.amber) + "22", color: row.badgeAccent || C.amber }}>{row.badge}</span>
+                )}
+                {row.badge2 && (
+                  <span style={{ ...styles.pill, background: (row.badge2Accent || C.red) + "22", color: row.badge2Accent || C.red }}>{row.badge2}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── tabs ─────────────────────────────────────────────────────────────────────
 
-function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeRange }) {
+function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeRange, onDrill }) {
   const contacts = data?.contacts?.contacts || [];
   const convos = data?.conversations?.conversations || [];
   const events = data?.appointments?.events || [];
-  const newToday = contacts.filter(c => isToday(leadDate(c))).length;
+  const newTodayList = contacts.filter(c => isToday(leadDate(c)));
   const needsReply = convos.filter(c => (c.unreadCount || 0) > 0);
   const upcoming = events.filter(e => { const d = toDate(e.startTime); return d && d.getTime() >= Date.now(); });
   const unconfirmed = upcoming.filter(e => withinDays(toDate(e.startTime), 2) && e.appointmentStatus !== "confirmed");
@@ -310,20 +401,52 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeR
   const bookRate = contacts.length ? Math.round((events.length / contacts.length) * 100) : 0;
   const rangeLabel = timeRange === 7 ? "7 days" : timeRange === 30 ? "30 days" : timeRange === 90 ? "90 days" : "all time";
 
+  const toContactRows = (list) => list.map(c => ({
+    primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
+    secondary: `${c.phone || "No phone"} · Added ${fmtDate(leadDate(c))}`,
+    badge: leadSource(c),
+    badgeAccent: C.amber,
+  }));
+
+  const toConvoRows = (list) => list.map(c => ({
+    primary: c.contactName || c.fullName || "Unknown",
+    secondary: `${(c.lastMessageBody || "No preview").slice(0, 80)} · ${fmtDate(convDate(c))}`,
+    badge: c.unreadCount > 0 ? `${c.unreadCount} unread` : undefined,
+    badgeAccent: C.red,
+  }));
+
+  const toCallRows = (list) => list.map(c => {
+    const p = parseCall(c.lastMessageBody);
+    const dMin = Math.floor(p.duration / 60), dSec = p.duration % 60;
+    return {
+      primary: c.contactName || c.fullName || "Unknown",
+      secondary: `${p.inbound ? "Inbound" : "Outbound"} · ${fmtDate(convDate(c))}`,
+      badge: p.answered ? `Answered ${dMin}m${dSec}s` : p.voicemail ? "Voicemail" : "Missed",
+      badgeAccent: p.answered ? C.green : C.red,
+    };
+  });
+
+  const toEventRows = (list) => list.map(e => ({
+    primary: e.title || e.name || "Appointment",
+    secondary: `${fmtDateTime(toDate(e.startTime))}${e.assignedUserId ? ` · ${e.assignedUserId}` : ""}`,
+    badge: e.appointmentStatus || "scheduled",
+    badgeAccent: (e.appointmentStatus === "confirmed" || e.appointmentStatus === "showed") ? C.green : C.textDim,
+  }));
+
   const queue = [];
   if (needsReply.length) queue.push({ icon: "💬", color: C.blue, title: `${needsReply.length} conversation${needsReply.length > 1 ? "s" : ""} awaiting reply`, sub: needsReply.slice(0, 3).map(c => c.contactName || "Unknown").join(", ") + (needsReply.length > 3 ? "…" : "") });
   if (unconfirmed.length) queue.push({ icon: "📅", color: C.amber, title: `${unconfirmed.length} appointment${unconfirmed.length > 1 ? "s" : ""} unconfirmed in next 48h`, sub: "Send confirmation texts to reduce no-shows" });
-  if (newToday) queue.push({ icon: "🎯", color: C.green, title: `${newToday} new lead${newToday > 1 ? "s" : ""} today`, sub: "Aim to make first contact within 5 minutes" });
+  if (newTodayList.length) queue.push({ icon: "🎯", color: C.green, title: `${newTodayList.length} new lead${newTodayList.length > 1 ? "s" : ""} today`, sub: "Aim to make first contact within 5 minutes" });
   if (!queue.length) queue.push({ icon: "✓", color: C.green, title: "All clear", sub: "No urgent items in the queue right now" });
 
   return (
     <div>
       <div style={styles.grid}>
-        <StatCard label="New Leads Today" value={newToday} sub={`${contacts.length} in ${rangeLabel}`} accent={C.green} />
-        <StatCard label="Awaiting Reply" value={needsReply.length} sub={`${smsThreads.length} SMS threads total`} accent={needsReply.length ? C.red : C.text} />
-        <StatCard label="Calls Answered" value={answeredCalls.length} sub={`of ${calls.length} calls — ${pct(answeredCalls.length, calls.length)}% rate`} accent={C.green} />
-        <StatCard label="Upcoming Appts" value={upcoming.length} sub={`${unconfirmed.length} unconfirmed`} accent={C.amber} />
-        <StatCard label="Booking Rate" value={`${bookRate}%`} sub={`${events.length} appts / ${contacts.length} leads`} />
+        <StatCard label="New Leads Today" value={newTodayList.length} sub={`${contacts.length} in ${rangeLabel}`} accent={C.green} onClick={newTodayList.length ? () => onDrill?.("New Leads Today", toContactRows(newTodayList)) : undefined} />
+        <StatCard label="Awaiting Reply" value={needsReply.length} sub={`${smsThreads.length} SMS threads total`} accent={needsReply.length ? C.red : C.text} onClick={needsReply.length ? () => onDrill?.("Awaiting Reply", toConvoRows(needsReply)) : undefined} />
+        <StatCard label="Calls Answered" value={answeredCalls.length} sub={`of ${calls.length} calls — ${pct(answeredCalls.length, calls.length)}% rate`} accent={C.green} onClick={answeredCalls.length ? () => onDrill?.("Answered Calls", toCallRows(answeredCalls)) : undefined} />
+        <StatCard label="Upcoming Appts" value={upcoming.length} sub={`${unconfirmed.length} unconfirmed`} accent={C.amber} onClick={upcoming.length ? () => onDrill?.("Upcoming Appointments", toEventRows(upcoming)) : undefined} />
+        <StatCard label="Booking Rate" value={`${bookRate}%`} sub={`${events.length} appts / ${contacts.length} leads`} onClick={events.length ? () => onDrill?.("All Appointments", toEventRows(events)) : undefined} />
       </div>
       <div style={styles.section}>
         <div style={styles.sectionTitle}>⚡ Action Queue</div>
@@ -373,11 +496,12 @@ function parseAiMessages(messages = []) {
   };
 }
 
-function LeadFunnel({ analysis, data, callDetails = [] }) {
+function LeadFunnel({ analysis, data, callDetails = [], onDrill }) {
   const contacts = data?.contacts?.contacts || [];
   const convos = data?.conversations?.conversations || [];
   const events = data?.appointments?.events || [];
   const funnel = buildFunnel(contacts, convos, events);
+  const funnelDetails = buildFunnelDetails(contacts, convos, events);
   const total = contacts.length || 1;
 
   const callConvos = convos.filter(c => isCall(c));
@@ -391,6 +515,37 @@ function LeadFunnel({ analysis, data, callDetails = [] }) {
     return events.some(e =>
       (cid && e.contactId && e.contactId === cid) || nameMatch(e.title || "", n)
     );
+  });
+
+  const toContactRows = (list) => list.map(c => ({
+    primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
+    secondary: `${c.phone || "No phone"} · Added ${fmtDate(leadDate(c))}`,
+    badge: leadSource(c),
+    badgeAccent: C.amber,
+  }));
+
+  const toConvoRows = (list) => list.map(c => ({
+    primary: c.contactName || c.fullName || "Unknown",
+    secondary: `${(c.lastMessageBody || "No preview").slice(0, 80)} · ${fmtDate(convDate(c))}`,
+    badge: c.unreadCount > 0 ? `${c.unreadCount} unread` : undefined,
+    badgeAccent: C.red,
+  }));
+
+  const toEventRows = (list) => list.map(e => ({
+    primary: e.title || e.name || "Appointment",
+    secondary: `${fmtDateTime(toDate(e.startTime))}${e.assignedUserId ? ` · ${e.assignedUserId}` : ""}`,
+    badge: e.appointmentStatus || "scheduled",
+    badgeAccent: (e.appointmentStatus === "confirmed" || e.appointmentStatus === "showed") ? C.green : C.textDim,
+  }));
+
+  const toCallRows = (list) => list.map(c => {
+    const dMin = Math.floor((c.duration || 0) / 60), dSec = (c.duration || 0) % 60;
+    return {
+      primary: c.contactName || c.fullName || "Unknown",
+      secondary: `${c.inbound ? "Inbound" : "Outbound"} · ${fmtDate(convDate(c))}`,
+      badge: c.answered ? `Answered ${dMin}m${dSec}s` : c.voicemail ? "Voicemail" : "Missed",
+      badgeAccent: c.answered ? C.green : C.red,
+    };
   });
 
   const sourceColors = { "Facebook / Meta": C.blue, "Google": C.green, "Website Form": C.purple };
@@ -417,10 +572,10 @@ function LeadFunnel({ analysis, data, callDetails = [] }) {
                 <span style={{ color: accent, fontSize: "10px" }}>◆</span> {src}
                 <span style={{ ...styles.pill, background: `${accent}22`, color: accent, marginLeft: "4px" }}>{d.leads} leads</span>
               </div>
-              <FunnelStage label="Leads" count={d.leads} base={total} accent={C.textDim} />
-              <FunnelStage label="↳ SMS Started" count={d.smsStarted} base={d.leads} accent={accent} />
-              <FunnelStage label="  ↳ Lead Replied" count={d.replied} base={d.smsStarted || 1} accent={C.green} />
-              <FunnelStage label="  ↳ Appt Booked" count={d.booked} base={d.leads} accent={C.amber} />
+              <FunnelStage label="Leads" count={d.leads} base={total} accent={C.textDim} onClick={() => onDrill?.(`${src} — Leads`, toContactRows(funnelDetails[src]?.leads || []))} />
+              <FunnelStage label="↳ SMS Started" count={d.smsStarted} base={d.leads} accent={accent} onClick={() => onDrill?.(`${src} — SMS Started`, toConvoRows(funnelDetails[src]?.smsStarted || []))} />
+              <FunnelStage label="  ↳ Lead Replied" count={d.replied} base={d.smsStarted || 1} accent={C.green} onClick={() => onDrill?.(`${src} — Lead Replied`, toConvoRows(funnelDetails[src]?.replied || []))} />
+              <FunnelStage label="  ↳ Appt Booked" count={d.booked} base={d.leads} accent={C.amber} onClick={() => onDrill?.(`${src} — Appt Booked`, toEventRows(funnelDetails[src]?.booked || []))} />
             </div>
           );
         })}
@@ -432,11 +587,11 @@ function LeadFunnel({ analysis, data, callDetails = [] }) {
       <div style={styles.section}>
         <div style={styles.sectionTitle}>📞 Voice Call Funnel</div>
         <div style={styles.grid}>
-          <StatCard label="Total Calls" value={callConvos.length} />
-          <StatCard label="Inbound" value={inboundCalls.length} sub={`${pct(inboundCalls.length, callConvos.length)}% of all calls`} accent={C.blue} />
-          <StatCard label="Answered" value={answeredCalls.length} sub={`${pct(answeredCalls.length, callConvos.length)}% answer rate`} accent={C.green} />
-          <StatCard label="Missed / VM" value={missedCalls.length} sub={`${pct(missedCalls.length, callConvos.length)}% missed`} accent={missedCalls.length ? C.red : C.textDim} />
-          <StatCard label="Appt Booked" value={callsBooked.length} sub="booked from a call" accent={C.amber} />
+          <StatCard label="Total Calls" value={callConvos.length} onClick={callConvos.length ? () => onDrill?.("All Calls", toCallRows(parsedCalls)) : undefined} />
+          <StatCard label="Inbound" value={inboundCalls.length} sub={`${pct(inboundCalls.length, callConvos.length)}% of all calls`} accent={C.blue} onClick={inboundCalls.length ? () => onDrill?.("Inbound Calls", toCallRows(inboundCalls)) : undefined} />
+          <StatCard label="Answered" value={answeredCalls.length} sub={`${pct(answeredCalls.length, callConvos.length)}% answer rate`} accent={C.green} onClick={answeredCalls.length ? () => onDrill?.("Answered Calls", toCallRows(answeredCalls)) : undefined} />
+          <StatCard label="Missed / VM" value={missedCalls.length} sub={`${pct(missedCalls.length, callConvos.length)}% missed`} accent={missedCalls.length ? C.red : C.textDim} onClick={missedCalls.length ? () => onDrill?.("Missed / Voicemail Calls", toCallRows(missedCalls)) : undefined} />
+          <StatCard label="Appt Booked" value={callsBooked.length} sub="booked from a call" accent={C.amber} onClick={callsBooked.length ? () => onDrill?.("Calls That Led to Booking", toCallRows(callsBooked)) : undefined} />
         </div>
         {parsedCalls.length > 0 && (
           <>
@@ -481,24 +636,40 @@ function LeadFunnel({ analysis, data, callDetails = [] }) {
   );
 }
 
-function Campaigns({ analysis, data }) {
+function Campaigns({ analysis, data, onDrill }) {
   const contacts = data?.contacts?.contacts || [];
   const events = data?.appointments?.events || [];
   const bySource = {};
   contacts.forEach(c => {
     const s = leadSource(c);
-    if (!bySource[s]) bySource[s] = { leads: 0 };
+    if (!bySource[s]) bySource[s] = { leads: 0, contacts: [] };
     bySource[s].leads++;
+    bySource[s].contacts.push(c);
   });
   const arr = Object.entries(bySource).sort((a, b) => b[1].leads - a[1].leads);
   const maxLeads = arr[0]?.[1].leads || 1;
   const fbLeads = bySource["Facebook / Meta"]?.leads || 0;
+
+  const toContactRows = (list) => list.map(c => ({
+    primary: c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
+    secondary: `${c.phone || "No phone"} · Added ${fmtDate(leadDate(c))}`,
+    badge: (c.attributionSource?.utmCampaign || c.attributionSource?.campaign) || undefined,
+    badgeAccent: C.blue,
+  }));
+
+  const toEventRows = (list) => list.map(e => ({
+    primary: e.title || e.name || "Appointment",
+    secondary: `${fmtDateTime(toDate(e.startTime))}${e.assignedUserId ? ` · ${e.assignedUserId}` : ""}`,
+    badge: e.appointmentStatus || "scheduled",
+    badgeAccent: (e.appointmentStatus === "confirmed" || e.appointmentStatus === "showed") ? C.green : C.textDim,
+  }));
+
   return (
     <div>
       <div style={styles.grid}>
-        <StatCard label="Facebook Leads" value={fbLeads} sub="attributed to Meta" accent={C.blue} />
+        <StatCard label="Facebook Leads" value={fbLeads} sub="attributed to Meta" accent={C.blue} onClick={fbLeads ? () => onDrill?.("Facebook / Meta Leads", toContactRows(bySource["Facebook / Meta"]?.contacts || [])) : undefined} />
         <StatCard label="Total Sources" value={arr.length} sub="active channels" />
-        <StatCard label="Appointments" value={events.length} sub="booked in range" accent={C.amber} />
+        <StatCard label="Appointments" value={events.length} sub="booked in range" accent={C.amber} onClick={events.length ? () => onDrill?.("Appointments", toEventRows(events)) : undefined} />
       </div>
       {analysis?.campaignInsights && (
         <div style={styles.section}>
@@ -509,14 +680,14 @@ function Campaigns({ analysis, data }) {
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Lead Volume by Channel</div>
         {arr.length === 0 && <div style={styles.insightText}>No attribution data in the selected range.</div>}
-        {arr.map(([s, v]) => <BarRow key={s} label={s} value={v.leads} max={maxLeads} accent={s.includes("Facebook") ? C.blue : C.amber} />)}
+        {arr.map(([s, v]) => <BarRow key={s} label={s} value={v.leads} max={maxLeads} accent={s.includes("Facebook") ? C.blue : C.amber} onClick={() => onDrill?.(`${s} — Leads`, toContactRows(v.contacts))} />)}
         <p style={styles.note}>Ad spend, CPL, and ROAS live in the Meta Ads API — connect that source to surface true cost-per-lead here.</p>
       </div>
     </div>
   );
 }
 
-function Conversations({ analysis, data }) {
+function Conversations({ analysis, data, onDrill }) {
   const convos = data?.conversations?.conversations || [];
   const smsThreads = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const emailThreads = convos.filter(c => convCategory(c.type) === "email");
@@ -524,6 +695,19 @@ function Conversations({ analysis, data }) {
   const smsWithReply = smsThreads.filter(c => (c.unreadCount || 0) > 0);
   const smsNoReply = smsThreads.filter(c => (c.unreadCount || 0) === 0);
   const allUnread = convos.filter(c => (c.unreadCount || 0) > 0);
+
+  const toConvoRows = (list) => list.map(c => {
+    const cat = convCategory(c.type, c.lastMessageBody);
+    const catColor = { sms: C.blue, call: C.green, email: C.amber, facebook: C.blue, instagram: C.purple }[cat] || C.textDim;
+    return {
+      primary: c.contactName || c.fullName || "Unknown",
+      secondary: `${(c.lastMessageBody || "No preview").slice(0, 80)} · ${fmtDate(convDate(c))}`,
+      badge: cat.toUpperCase(),
+      badgeAccent: catColor,
+      badge2: c.unreadCount > 0 ? `${c.unreadCount} unread` : undefined,
+      badge2Accent: C.red,
+    };
+  });
 
   // Tally raw types from GHL so we can verify categorisation
   const rawTypes = {};
@@ -543,11 +727,11 @@ function Conversations({ analysis, data }) {
   return (
     <div>
       <div style={styles.grid}>
-        <StatCard label="SMS Threads" value={smsThreads.length} />
-        <StatCard label="Lead Replied (unread)" value={smsWithReply.length} sub={`${pct(smsWithReply.length, smsThreads.length)}% reply rate`} accent={smsWithReply.length ? C.green : C.textDim} />
-        <StatCard label="No Active Reply" value={smsNoReply.length} sub="handled or no response" accent={smsNoReply.length > smsWithReply.length ? C.red : C.textDim} />
-        <StatCard label="Email Threads" value={emailThreads.length} accent={C.amber} />
-        <StatCard label="Total Unread" value={allUnread.length} sub="across all channels" accent={allUnread.length ? C.red : C.text} />
+        <StatCard label="SMS Threads" value={smsThreads.length} onClick={smsThreads.length ? () => onDrill?.("SMS Threads", toConvoRows(smsThreads)) : undefined} />
+        <StatCard label="Lead Replied (unread)" value={smsWithReply.length} sub={`${pct(smsWithReply.length, smsThreads.length)}% reply rate`} accent={smsWithReply.length ? C.green : C.textDim} onClick={smsWithReply.length ? () => onDrill?.("Leads With Unread SMS", toConvoRows(smsWithReply)) : undefined} />
+        <StatCard label="No Active Reply" value={smsNoReply.length} sub="handled or no response" accent={smsNoReply.length > smsWithReply.length ? C.red : C.textDim} onClick={smsNoReply.length ? () => onDrill?.("SMS — No Active Reply", toConvoRows(smsNoReply)) : undefined} />
+        <StatCard label="Email Threads" value={emailThreads.length} accent={C.amber} onClick={emailThreads.length ? () => onDrill?.("Email Threads", toConvoRows(emailThreads)) : undefined} />
+        <StatCard label="Total Unread" value={allUnread.length} sub="across all channels" accent={allUnread.length ? C.red : C.text} onClick={allUnread.length ? () => onDrill?.("All Unread Conversations", toConvoRows(allUnread)) : undefined} />
       </div>
       {analysis?.conversationInsights && (
         <div style={styles.section}>
@@ -588,22 +772,30 @@ function Conversations({ analysis, data }) {
   );
 }
 
-function Appointments({ analysis, data }) {
+function Appointments({ analysis, data, onDrill }) {
   const events = data?.appointments?.events || [];
   const sorted = [...events].sort((a, b) => (toDate(a.startTime)?.getTime() || 0) - (toDate(b.startTime)?.getTime() || 0));
   const upcoming = sorted.filter(e => (toDate(e.startTime)?.getTime() || 0) >= Date.now());
   const past = sorted.filter(e => (toDate(e.startTime)?.getTime() || 0) < Date.now());
-  const confirmed = upcoming.filter(e => e.appointmentStatus === "confirmed").length;
-  const showed = past.filter(e => e.appointmentStatus === "showed").length;
-  const showRate = past.length ? pct(showed, past.length) : null;
+  const confirmedList = upcoming.filter(e => e.appointmentStatus === "confirmed");
+  const atRiskList = upcoming.filter(e => e.appointmentStatus !== "confirmed");
+  const showedList = past.filter(e => e.appointmentStatus === "showed");
+  const showRate = past.length ? pct(showedList.length, past.length) : null;
+
+  const toEventRows = (list) => list.map(e => ({
+    primary: e.title || e.name || "Appointment",
+    secondary: `${fmtDateTime(toDate(e.startTime))}${e.assignedUserId ? ` · ${e.assignedUserId}` : ""}`,
+    badge: e.appointmentStatus || "scheduled",
+    badgeAccent: (e.appointmentStatus === "confirmed" || e.appointmentStatus === "showed") ? C.green : e.appointmentStatus === "cancelled" ? C.red : C.textDim,
+  }));
 
   return (
     <div>
       <div style={styles.grid}>
-        <StatCard label="Upcoming" value={upcoming.length} accent={C.amber} />
-        <StatCard label="Confirmed" value={confirmed} sub={`of ${upcoming.length} upcoming`} accent={C.green} />
-        <StatCard label="At Risk" value={upcoming.length - confirmed} sub="unconfirmed upcoming" accent={(upcoming.length - confirmed) ? C.red : C.textDim} />
-        {showRate !== null && <StatCard label="Show Rate" value={`${showRate}%`} sub={`${showed} showed / ${past.length} past`} accent={C.blue} />}
+        <StatCard label="Upcoming" value={upcoming.length} accent={C.amber} onClick={upcoming.length ? () => onDrill?.("Upcoming Appointments", toEventRows(upcoming)) : undefined} />
+        <StatCard label="Confirmed" value={confirmedList.length} sub={`of ${upcoming.length} upcoming`} accent={C.green} onClick={confirmedList.length ? () => onDrill?.("Confirmed Appointments", toEventRows(confirmedList)) : undefined} />
+        <StatCard label="At Risk" value={atRiskList.length} sub="unconfirmed upcoming" accent={atRiskList.length ? C.red : C.textDim} onClick={atRiskList.length ? () => onDrill?.("Unconfirmed Appointments", toEventRows(atRiskList)) : undefined} />
+        {showRate !== null && <StatCard label="Show Rate" value={`${showRate}%`} sub={`${showedList.length} showed / ${past.length} past`} accent={C.blue} onClick={past.length ? () => onDrill?.("Past Appointments", toEventRows(past)) : undefined} />}
       </div>
       {analysis?.appointmentInsights && (
         <div style={styles.section}>
@@ -718,6 +910,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("command");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [timeRange, setTimeRange] = useState(30);
+  const [modal, setModal] = useState(null);
+
+  const openDrill = (title, rows) => setModal({ title, rows });
+  const closeDrill = () => setModal(null);
 
   const rawContacts = data?.contacts?.contacts || [];
   const rawConvos = data?.conversations?.conversations || [];
@@ -858,13 +1054,14 @@ export default function App() {
         ))}
       </div>
       <div style={styles.content}>
-        {activeTab === "command" && <CommandCenter analysis={analysis} data={filteredData} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} timeRange={timeRange} />}
-        {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} callDetails={callDetails} />}
-        {activeTab === "campaigns" && <Campaigns analysis={analysis} data={filteredData} />}
-        {activeTab === "conversations" && <Conversations analysis={analysis} data={filteredData} />}
-        {activeTab === "appointments" && <Appointments analysis={analysis} data={filteredData} />}
+        {activeTab === "command" && <CommandCenter analysis={analysis} data={filteredData} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} timeRange={timeRange} onDrill={openDrill} />}
+        {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} callDetails={callDetails} onDrill={openDrill} />}
+        {activeTab === "campaigns" && <Campaigns analysis={analysis} data={filteredData} onDrill={openDrill} />}
+        {activeTab === "conversations" && <Conversations analysis={analysis} data={filteredData} onDrill={openDrill} />}
+        {activeTab === "appointments" && <Appointments analysis={analysis} data={filteredData} onDrill={openDrill} />}
         {activeTab === "ai" && <AIInsights analysis={analysis} analyzing={analyzing} analyzedAt={analyzedAt} onAnalyze={getAnalysis} />}
       </div>
+      <DrillDownModal modal={modal} onClose={closeDrill} />
     </div>
   );
 }
