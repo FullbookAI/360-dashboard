@@ -103,19 +103,29 @@ function nameMatch(a, b) {
   return aw.some(w => bw.includes(w));
 }
 
-// GHL returns different type strings across versions — normalise everything here
-function convCategory(type) {
+// GHL LC Phone puts ALL conversations under TYPE_PHONE.
+// Distinguish voice calls from SMS by inspecting lastMessageBody.
+function isCallBody(body = "") {
+  const b = body.toLowerCase();
+  return b.includes("inbound call") || b.includes("outbound call") ||
+         b.includes("voicemail") || b.includes("missed call") ||
+         /\d+m\d+s/.test(body);
+}
+function convCategory(type, body = "") {
   const t = String(type ?? "").toLowerCase();
-  if (t.includes("sms") || t === "1") return "sms";
   if (t.includes("email") || t === "2") return "email";
-  if (t.includes("phone") || t.includes("call") || t === "3") return "call";
   if (t.includes("fb") || t.includes("facebook")) return "facebook";
   if (t.includes("instagram") || t.includes("ig")) return "instagram";
   if (t.includes("gmb") || t.includes("google")) return "gmb";
   if (t.includes("chat") || t.includes("live")) return "chat";
+  if (t.includes("sms") || t === "1") return "sms";
+  // TYPE_PHONE covers both SMS and voice — use message body to tell them apart
+  if (t.includes("phone") || t.includes("call") || t === "3") {
+    return isCallBody(body) ? "call" : "sms";
+  }
   return "other";
 }
-function isCall(type) { return convCategory(type) === "call"; }
+function isCall(c) { return convCategory(c.type, c.lastMessageBody) === "call"; }
 function parseCall(body = "") {
   const b = body.toLowerCase();
   const durationMatch = body.match(/(\d+)m(\d+)s/);
@@ -132,7 +142,7 @@ function parseCall(body = "") {
 }
 
 function buildFunnel(contacts, convos, events) {
-  const smsConvos = convos.filter(c => c.type === "TYPE_SMS");
+  const smsConvos = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const sources = {};
   contacts.forEach(c => {
     const src = leadSource(c);
@@ -294,9 +304,9 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeR
   const needsReply = convos.filter(c => (c.unreadCount || 0) > 0);
   const upcoming = events.filter(e => { const d = toDate(e.startTime); return d && d.getTime() >= Date.now(); });
   const unconfirmed = upcoming.filter(e => withinDays(toDate(e.startTime), 2) && e.appointmentStatus !== "confirmed");
-  const calls = convos.filter(c => isCall(c.type));
+  const calls = convos.filter(c => isCall(c));
   const answeredCalls = calls.filter(c => parseCall(c.lastMessageBody).answered);
-  const smsThreads = convos.filter(c => convCategory(c.type) === "sms");
+  const smsThreads = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const bookRate = contacts.length ? Math.round((events.length / contacts.length) * 100) : 0;
   const rangeLabel = timeRange === 7 ? "7 days" : timeRange === 30 ? "30 days" : timeRange === 90 ? "90 days" : "all time";
 
@@ -349,7 +359,7 @@ function LeadFunnel({ analysis, data }) {
   const funnel = buildFunnel(contacts, convos, events);
   const total = contacts.length || 1;
 
-  const callConvos = convos.filter(c => isCall(c.type));
+  const callConvos = convos.filter(c => isCall(c));
   const parsedCalls = callConvos.map(c => ({ ...c, ...parseCall(c.lastMessageBody) }));
   const inboundCalls = parsedCalls.filter(c => c.inbound);
   const answeredCalls = parsedCalls.filter(c => c.answered);
@@ -480,9 +490,9 @@ function Campaigns({ analysis, data }) {
 
 function Conversations({ analysis, data }) {
   const convos = data?.conversations?.conversations || [];
-  const smsThreads = convos.filter(c => convCategory(c.type) === "sms");
+  const smsThreads = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const emailThreads = convos.filter(c => convCategory(c.type) === "email");
-  const callThreads = convos.filter(c => isCall(c.type));
+  const callThreads = convos.filter(c => isCall(c));
   const smsWithReply = smsThreads.filter(c => (c.unreadCount || 0) > 0);
   const smsNoReply = smsThreads.filter(c => (c.unreadCount || 0) === 0);
   const allUnread = convos.filter(c => (c.unreadCount || 0) > 0);
@@ -521,7 +531,7 @@ function Conversations({ analysis, data }) {
         <div style={styles.sectionTitle}>Recent Conversations</div>
         {convos.length === 0 && <div style={styles.insightText}>No conversation data in the selected range.</div>}
         {convos.slice(0, 25).map((c, i) => {
-          const cat = convCategory(c.type);
+          const cat = convCategory(c.type, c.lastMessageBody);
           const meta = catMeta[cat] || catMeta.other;
           const hasReply = (c.unreadCount || 0) > 0;
           return (
