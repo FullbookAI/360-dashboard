@@ -574,7 +574,7 @@ function LeadFunnel({ analysis, data, callDetails = [], onDrill }) {
         <div style={{ fontSize: "0.76rem", color: C.textFaint, marginBottom: "14px" }}>
           % shown relative to each prior stage. "Replied" = active unread thread from lead. Booking matched by contact name.
         </div>
-        {funnel.filter(([src]) => !src.toLowerCase().includes("phone")).map(([src, d]) => {
+        {funnel.map(([src, d]) => {
           const accent = sourceColors[src] || C.amber;
           return (
             <div key={src} style={styles.funnelSource}>
@@ -589,7 +589,7 @@ function LeadFunnel({ analysis, data, callDetails = [], onDrill }) {
             </div>
           );
         })}
-        {funnel.filter(([src]) => !src.toLowerCase().includes("phone")).length === 0 && (
+        {funnel.length === 0 && (
           <div style={styles.insightText}>No lead data in the selected time range.</div>
         )}
       </div>
