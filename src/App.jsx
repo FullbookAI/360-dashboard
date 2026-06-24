@@ -445,7 +445,12 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
       return false;
     });
   };
-  const hasName = (c) => !!(c.firstName || c.lastName || "").trim();
+  const NULL_NAME = /^[-–—\s]+$|^n\/?a$/i;
+  const hasName = (c) => {
+    const f = (c.firstName || "").trim(), l = (c.lastName || "").trim();
+    const real = (v) => v.length > 0 && !NULL_NAME.test(v);
+    return real(f) || real(l);
+  };
   const hasZip  = (c) => !!(c.postalCode || c.postal_code || c.zip || "").trim();
   const PEST_KEY = "pest.*activity.*location|pest.*location|activity.*location";
   const HOME_KEY = "is.*home.?owner|home.?owner.*present|home.?owner";
@@ -507,11 +512,17 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
             />
           );
         })}
-        {fieldDefs.length === 0 && (
-          <div style={{ fontSize: "0.75rem", color: C.textFaint, marginTop: "6px" }}>
-            Field definitions unavailable — stages match by fieldKey pattern only.
-          </div>
-        )}
+        {(() => {
+          const withCF = contacts.filter(c => Array.isArray(c.customFields) && c.customFields.some(f => (f.value ?? f.fieldValue ?? "").toString().trim())).length;
+          const sampleIds = [...new Set(contacts.flatMap(c => (c.customFields || []).filter(f => (f.value ?? f.fieldValue ?? "").toString().trim()).map(f => f.id)))].slice(0, 4);
+          if (fieldDefs.length === 0 && withCF > 0) {
+            return <div style={{ fontSize: "0.72rem", color: C.amber, marginTop: "8px" }}>⚠ {withCF} contacts have custom field data but field definitions failed to load. IDs seen: {sampleIds.join(", ")}</div>;
+          }
+          if (withCF === 0) {
+            return <div style={{ fontSize: "0.72rem", color: C.textFaint, marginTop: "8px" }}>No custom field values found on contacts.</div>;
+          }
+          return null;
+        })()}
       </div>
 
       <div style={styles.section}>

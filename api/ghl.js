@@ -152,15 +152,20 @@ function cleanEvents(events) {
 }
 
 async function fetchCustomFieldDefs(locationId, token, contacts) {
-  const result = await ghlFetch(
-    `${GHL_BASE}/contacts/custom-fields?locationId=${locationId}`,
-    token
-  );
-  let fields = Array.isArray(result?.customFields) ? result.customFields :
-               Array.isArray(result?.fields) ? result.fields :
-               Array.isArray(result) ? result : [];
+  const tryExtract = (r) =>
+    Array.isArray(r?.customFields) ? r.customFields :
+    Array.isArray(r?.fields) ? r.fields :
+    Array.isArray(r) ? r : [];
 
-  // Fallback: fetch one contact's full record — GHL sometimes includes fieldKey/name there
+  // Try primary endpoint
+  let fields = tryExtract(await ghlFetch(`${GHL_BASE}/contacts/custom-fields?locationId=${locationId}`, token));
+
+  // Try alternative GHL path
+  if (fields.length === 0) {
+    fields = tryExtract(await ghlFetch(`${GHL_BASE}/custom-fields/?locationId=${locationId}`, token));
+  }
+
+  // Fallback: fetch one contact's full record — GHL often includes fieldKey/name there
   if (fields.length === 0 && Array.isArray(contacts) && contacts.length > 0) {
     const seed = contacts.find(c => Array.isArray(c.customFields) && c.customFields.length > 0);
     if (seed) {
