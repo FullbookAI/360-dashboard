@@ -141,6 +141,15 @@ function parseCall(body = "") {
 function buildFunnel(contacts, convos, events) {
   const smsConvos = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const sources = {};
+
+  // Pre-claim events that have a solid contactId link so name-match can't double-count them
+  const claimedApptKeys = new Set();
+  contacts.forEach(c => {
+    if (!c.id) return;
+    const appt = events.find(e => e.contactId && e.contactId === c.id);
+    if (appt) claimedApptKeys.add(`${(appt.title || "").toLowerCase()}|${appt.startTime || ""}`);
+  });
+
   contacts.forEach(c => {
     const src = leadSource(c);
     if (!sources[src]) sources[src] = { leads: 0, smsStarted: 0, replied: 0, booked: 0 };
@@ -148,7 +157,6 @@ function buildFunnel(contacts, convos, events) {
     d.leads++;
     const cid = c.id;
     const cname = getName(c);
-    // prefer contactId match (reliable); fall back to name match
     const matched = smsConvos.find(cv =>
       (cid && cv.contactId && cv.contactId === cid) || nameMatch(getName(cv), cname)
     );
@@ -156,10 +164,18 @@ function buildFunnel(contacts, convos, events) {
       d.smsStarted++;
       if ((matched.unreadCount || 0) > 0) d.replied++;
     }
-    const hasAppt = events.some(e =>
-      (cid && e.contactId && e.contactId === cid) || nameMatch(e.title || "", cname)
-    );
-    if (hasAppt) d.booked++;
+    // contactId match first; name-match only on events not already claimed by another contact
+    let appt = cid ? events.find(e => e.contactId && e.contactId === cid) : null;
+    if (!appt) {
+      appt = events.find(e => {
+        const key = `${(e.title || "").toLowerCase()}|${e.startTime || ""}`;
+        return !claimedApptKeys.has(key) && nameMatch(e.title || "", cname);
+      });
+    }
+    if (appt) {
+      claimedApptKeys.add(`${(appt.title || "").toLowerCase()}|${appt.startTime || ""}`);
+      d.booked++;
+    }
   });
   return Object.entries(sources).sort((a, b) => b[1].leads - a[1].leads);
 }
@@ -167,6 +183,14 @@ function buildFunnel(contacts, convos, events) {
 function buildFunnelDetails(contacts, convos, events) {
   const smsConvos = convos.filter(c => convCategory(c.type, c.lastMessageBody) === "sms");
   const result = {};
+
+  const claimedApptKeys = new Set();
+  contacts.forEach(c => {
+    if (!c.id) return;
+    const appt = events.find(e => e.contactId && e.contactId === c.id);
+    if (appt) claimedApptKeys.add(`${(appt.title || "").toLowerCase()}|${appt.startTime || ""}`);
+  });
+
   contacts.forEach(c => {
     const src = leadSource(c);
     if (!result[src]) result[src] = { leads: [], smsStarted: [], replied: [], booked: [] };
@@ -181,10 +205,17 @@ function buildFunnelDetails(contacts, convos, events) {
       r.smsStarted.push(matched);
       if ((matched.unreadCount || 0) > 0) r.replied.push(matched);
     }
-    const appt = events.find(e =>
-      (cid && e.contactId && e.contactId === cid) || nameMatch(e.title || "", cname)
-    );
-    if (appt) r.booked.push(appt);
+    let appt = cid ? events.find(e => e.contactId && e.contactId === cid) : null;
+    if (!appt) {
+      appt = events.find(e => {
+        const key = `${(e.title || "").toLowerCase()}|${e.startTime || ""}`;
+        return !claimedApptKeys.has(key) && nameMatch(e.title || "", cname);
+      });
+    }
+    if (appt) {
+      claimedApptKeys.add(`${(appt.title || "").toLowerCase()}|${appt.startTime || ""}`);
+      r.booked.push(appt);
+    }
   });
   return result;
 }
