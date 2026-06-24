@@ -103,7 +103,19 @@ function nameMatch(a, b) {
   return aw.some(w => bw.includes(w));
 }
 
-function isCall(type) { return type === "TYPE_CALL" || type === "TYPE_PHONE"; }
+// GHL returns different type strings across versions — normalise everything here
+function convCategory(type) {
+  const t = String(type ?? "").toLowerCase();
+  if (t.includes("sms") || t === "1") return "sms";
+  if (t.includes("email") || t === "2") return "email";
+  if (t.includes("phone") || t.includes("call") || t === "3") return "call";
+  if (t.includes("fb") || t.includes("facebook")) return "facebook";
+  if (t.includes("instagram") || t.includes("ig")) return "instagram";
+  if (t.includes("gmb") || t.includes("google")) return "gmb";
+  if (t.includes("chat") || t.includes("live")) return "chat";
+  return "other";
+}
+function isCall(type) { return convCategory(type) === "call"; }
 function parseCall(body = "") {
   const b = body.toLowerCase();
   const durationMatch = body.match(/(\d+)m(\d+)s/);
@@ -284,7 +296,7 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, timeR
   const unconfirmed = upcoming.filter(e => withinDays(toDate(e.startTime), 2) && e.appointmentStatus !== "confirmed");
   const calls = convos.filter(c => isCall(c.type));
   const answeredCalls = calls.filter(c => parseCall(c.lastMessageBody).answered);
-  const smsThreads = convos.filter(c => c.type === "TYPE_SMS");
+  const smsThreads = convos.filter(c => convCategory(c.type) === "sms");
   const bookRate = contacts.length ? Math.round((events.length / contacts.length) * 100) : 0;
   const rangeLabel = timeRange === 7 ? "7 days" : timeRange === 30 ? "30 days" : timeRange === 90 ? "90 days" : "all time";
 
@@ -468,18 +480,26 @@ function Campaigns({ analysis, data }) {
 
 function Conversations({ analysis, data }) {
   const convos = data?.conversations?.conversations || [];
-  const smsThreads = convos.filter(c => c.type === "TYPE_SMS");
-  const emailThreads = convos.filter(c => c.type === "TYPE_EMAIL");
+  const smsThreads = convos.filter(c => convCategory(c.type) === "sms");
+  const emailThreads = convos.filter(c => convCategory(c.type) === "email");
   const callThreads = convos.filter(c => isCall(c.type));
   const smsWithReply = smsThreads.filter(c => (c.unreadCount || 0) > 0);
   const smsNoReply = smsThreads.filter(c => (c.unreadCount || 0) === 0);
   const allUnread = convos.filter(c => (c.unreadCount || 0) > 0);
 
-  const typeMeta = {
-    TYPE_CALL:  { bg: "#0D2E1A", color: C.green, label: "Call" },
-    TYPE_PHONE: { bg: "#0D2E1A", color: C.green, label: "Call" },
-    TYPE_SMS:   { bg: "#0D1E3A", color: C.blue,  label: "SMS"  },
-    TYPE_EMAIL: { bg: "#2A1B0D", color: C.amber, label: "Email" },
+  // Tally raw types from GHL so we can verify categorisation
+  const rawTypes = {};
+  convos.forEach(c => { const t = String(c.type ?? "none"); rawTypes[t] = (rawTypes[t] || 0) + 1; });
+
+  const catMeta = {
+    call:      { bg: "#0D2E1A", color: C.green, label: "Call" },
+    sms:       { bg: "#0D1E3A", color: C.blue,  label: "SMS"  },
+    email:     { bg: "#2A1B0D", color: C.amber, label: "Email" },
+    facebook:  { bg: "#0D1A2A", color: C.blue,  label: "FB"   },
+    instagram: { bg: "#2A0D1E", color: C.purple,label: "IG"   },
+    gmb:       { bg: "#0D2A1A", color: C.green, label: "GMB"  },
+    chat:      { bg: "#1A0D2A", color: C.purple,label: "Chat" },
+    other:     { bg: C.border,  color: C.textDim,label: "Other"},
   };
 
   return (
@@ -501,7 +521,8 @@ function Conversations({ analysis, data }) {
         <div style={styles.sectionTitle}>Recent Conversations</div>
         {convos.length === 0 && <div style={styles.insightText}>No conversation data in the selected range.</div>}
         {convos.slice(0, 25).map((c, i) => {
-          const meta = typeMeta[c.type] || { bg: C.border, color: C.textDim, label: (c.type || "").replace("TYPE_", "") };
+          const cat = convCategory(c.type);
+          const meta = catMeta[cat] || catMeta.other;
           const hasReply = (c.unreadCount || 0) > 0;
           return (
             <div key={i} style={styles.row}>
@@ -513,12 +534,17 @@ function Conversations({ analysis, data }) {
                 <span style={{ ...styles.pill, background: meta.bg, color: meta.color }}>{meta.label}</span>
                 {hasReply
                   ? <span style={{ ...styles.pill, background: "#2A1215", color: C.red }}>{c.unreadCount} unread</span>
-                  : c.type === "TYPE_SMS" && <span style={{ ...styles.pill, background: C.bg, color: C.textFaint }}>No reply</span>
+                  : cat === "sms" && <span style={{ ...styles.pill, background: C.bg, color: C.textFaint }}>No reply</span>
                 }
               </div>
             </div>
           );
         })}
+        {Object.keys(rawTypes).length > 0 && (
+          <p style={{ ...styles.note, marginTop: "14px" }}>
+            GHL channel types in this data: {Object.entries(rawTypes).map(([t, n]) => `${t} (${n})`).join(" · ")}
+          </p>
+        )}
       </div>
     </div>
   );
