@@ -988,51 +988,21 @@ function ExportedData({ data }) {
     return s;
   };
 
-  // Live source helpers — check raw field directly (appSource may differ from leadSource display)
-  const rawSrc = (c) => (c.source || c.sourceName || c.appSource || "").toLowerCase();
-  const isFBLive = (c) => leadSource(c) === "Facebook / Meta" || cTags(c).some(t => t === "fb-lead-form" || t === "fb-number");
-  const isVoiceAILive = (c) => rawSrc(c).includes("third party") || rawSrc(c) === "third_party";
-  const isConvAILive = (c) => rawSrc(c).includes("conversations ai") || rawSrc(c).includes("conversations_ai");
-
-  // Precompute live stats once
-  const liveTotal = contacts.length;
-  const liveWithName = contacts.filter(hasName).length;
-  const liveWithEmail = contacts.filter(c => !!(c.email || "").trim()).length;
-  const liveFB = contacts.filter(isFBLive).length;
-  const liveVoiceAI = contacts.filter(c => isVoiceAILive(c) && !isFBLive(c)).length;
-  const liveConvAI = contacts.filter(c => isConvAILive(c) && !isFBLive(c)).length;
-  const liveUnattr = liveTotal - liveFB - liveVoiceAI - liveConvAI;
-  const liveBooked = contacts.filter(c => !!getLastAppt(c)).length;
-  const liveBkdVoiceAI = contacts.filter(c => isVoiceAILive(c) && !!getLastAppt(c)).length;
-  const liveBkdConvAI = contacts.filter(c => isConvAILive(c) && !!getLastAppt(c)).length;
-  const liveBkdOther = Math.max(0, liveBooked - liveBkdVoiceAI - liveBkdConvAI);
-
-  // Bar showing CSV vs Live values side by side
-  const CompareBar = ({ label, csvVal, liveVal, csvTotal, liveTotal: lt, color }) => {
-    const cp = csvTotal ? Math.round((csvVal / csvTotal) * 100) : 0;
-    const lp = lt ? Math.round((liveVal / lt) * 100) : 0;
+  const Bar = ({ label, val, total, color }) => {
+    const p = total ? Math.round((val / total) * 100) : 0;
     return (
       <div style={{ marginBottom: "13px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px", alignItems: "baseline" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
           <span style={{ fontSize: "0.8rem", color: C.textMute }}>{label}</span>
-          <div style={{ display: "flex", gap: "20px" }}>
-            <span style={{ fontSize: "0.78rem", color: `${C.amber}99` }}>{csvVal.toLocaleString()} <span style={{ color: C.textFaint, fontSize: "0.7rem" }}>({cp}%)</span></span>
-            <span style={{ fontSize: "0.78rem", color: C.amber }}>{liveVal.toLocaleString()} <span style={{ color: C.textFaint, fontSize: "0.7rem" }}>({lp}%)</span></span>
-          </div>
+          <span style={{ fontSize: "0.8rem", color: C.text }}>{val.toLocaleString()} <span style={{ color: C.textFaint, fontSize: "0.72rem" }}>({p}%)</span></span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px" }}>
-          <div style={{ height: "5px", background: C.panelDark, borderRadius: "3px", overflow: "hidden" }}>
-            <div style={{ width: `${cp}%`, height: "100%", background: `${color}55`, borderRadius: "3px" }} />
-          </div>
-          <div style={{ height: "5px", background: C.panelDark, borderRadius: "3px", overflow: "hidden" }}>
-            <div style={{ width: `${lp}%`, height: "100%", background: color, borderRadius: "3px" }} />
-          </div>
+        <div style={{ height: "5px", background: C.panelDark, borderRadius: "3px", overflow: "hidden" }}>
+          <div style={{ width: `${p}%`, height: "100%", background: color, borderRadius: "3px" }} />
         </div>
       </div>
     );
   };
 
-  // Filters for live contact table
   const techs = [...new Set(contacts.map(c => getCFValue(c, CF.assignedTech)).filter(Boolean))].sort();
   let filtered = contacts;
   if (search) {
@@ -1058,44 +1028,24 @@ function ExportedData({ data }) {
     }}>{label}</button>
   );
 
-  const diffBadge = (csv, live) => {
-    const d = live - csv;
-    if (d === 0) return null;
-    return <span style={{ fontSize: "0.68rem", color: d > 0 ? C.green : C.red, marginLeft: "6px" }}>{d > 0 ? `+${d}` : d} vs CSV</span>;
-  };
-
   return (
     <div>
-      {/* Legend */}
-      <div style={{ display: "flex", gap: "20px", marginBottom: "14px", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <div style={{ width: "24px", height: "5px", background: `${C.amber}55`, borderRadius: "3px" }} />
-          <span style={{ fontSize: "0.72rem", color: C.textFaint }}>CSV Export ({CSV_SNAP.date})</span>
-        </div>
-        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <div style={{ width: "24px", height: "5px", background: C.amber, borderRadius: "3px" }} />
-          <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Live GHL API ({liveTotal < CSV_SNAP.total ? `${CSV_SNAP.total - liveTotal} contacts still loading` : "up to date"})</span>
-        </div>
+      <div style={{ fontSize: "0.72rem", color: C.textFaint, marginBottom: "14px" }}>
+        GHL export · {CSV_SNAP.date} · {CSV_SNAP.total.toLocaleString()} contacts
       </div>
 
-      {/* Overview stat cards */}
+      {/* Stat cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "12px" }}>
         {[
-          { label: "Total Contacts", csv: CSV_SNAP.total, live: liveTotal },
-          { label: "Have a Name", csv: CSV_SNAP.withName, live: liveWithName },
-          { label: "Have an Email", csv: CSV_SNAP.withEmail, live: liveWithEmail },
-        ].map(({ label, csv, live: lv }) => (
+          { label: "Total Contacts", val: CSV_SNAP.total, accent: C.text },
+          { label: "Have a Name",    val: CSV_SNAP.withName, accent: C.amber },
+          { label: "Have an Email",  val: CSV_SNAP.withEmail, accent: C.blue },
+        ].map(({ label, val, accent }) => (
           <div key={label} style={{ ...styles.section, padding: "1rem", marginBottom: 0 }}>
-            <div style={{ fontSize: "0.7rem", color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>{label}</div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-              <div>
-                <div style={{ fontSize: "1.5rem", fontWeight: "700", color: `${C.amber}88` }}>{csv.toLocaleString()}</div>
-                <div style={{ fontSize: "0.65rem", color: C.textFaint, marginTop: "2px" }}>CSV</div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: "1.5rem", fontWeight: "700", color: C.amber }}>{lv.toLocaleString()}{diffBadge(csv, lv)}</div>
-                <div style={{ fontSize: "0.65rem", color: C.textFaint, marginTop: "2px" }}>Live</div>
-              </div>
+            <div style={{ fontSize: "0.7rem", color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "8px" }}>{label}</div>
+            <div style={{ fontSize: "1.8rem", fontWeight: "700", color: accent }}>{val.toLocaleString()}</div>
+            <div style={{ fontSize: "0.7rem", color: C.textFaint, marginTop: "2px" }}>
+              {Math.round((val / CSV_SNAP.total) * 100)}% of total
             </div>
           </div>
         ))}
@@ -1105,34 +1055,24 @@ function ExportedData({ data }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
         <div style={styles.section}>
           <div style={styles.sectionTitle}>Initial Source</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 8px", marginBottom: "10px" }}>
-            <div style={{ fontSize: "0.68rem", color: `${C.amber}88`, textAlign: "center" }}>CSV</div>
-            <div style={{ fontSize: "0.68rem", color: C.amber, textAlign: "center" }}>Live</div>
-          </div>
-          <CompareBar label="Facebook" csvVal={CSV_SNAP.facebook} liveVal={liveFB} csvTotal={CSV_SNAP.total} liveTotal={liveTotal} color={C.blue} />
-          <CompareBar label="Voice AI (inbound phone)" csvVal={CSV_SNAP.voiceAI} liveVal={liveVoiceAI} csvTotal={CSV_SNAP.total} liveTotal={liveTotal} color={C.green} />
-          <CompareBar label="Conversation AI" csvVal={CSV_SNAP.convAI} liveVal={liveConvAI} csvTotal={CSV_SNAP.total} liveTotal={liveTotal} color={C.purple} />
-          <CompareBar label="Unattributed / Other" csvVal={CSV_SNAP.unattributed} liveVal={liveUnattr} csvTotal={CSV_SNAP.total} liveTotal={liveTotal} color={C.textFaint} />
+          <Bar label="Facebook"              val={CSV_SNAP.facebook}    total={CSV_SNAP.total} color={C.blue} />
+          <Bar label="Voice AI (inbound phone)" val={CSV_SNAP.voiceAI} total={CSV_SNAP.total} color={C.green} />
+          <Bar label="Conversation AI"       val={CSV_SNAP.convAI}     total={CSV_SNAP.total} color={C.purple} />
+          <Bar label="Unattributed / Other"  val={CSV_SNAP.unattributed} total={CSV_SNAP.total} color={C.textFaint} />
         </div>
 
         <div style={styles.section}>
           <div style={styles.sectionTitle}>
             <span>Booking Channel</span>
-            <span style={{ fontSize: "0.72rem", fontWeight: "400", textTransform: "none", color: C.textFaint }}>
-              CSV: {CSV_SNAP.booked} booked · Live: {liveBooked} booked
-            </span>
+            <span style={{ fontSize: "0.72rem", fontWeight: "400", textTransform: "none", color: C.textFaint }}>{CSV_SNAP.booked} booked</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 8px", marginBottom: "10px" }}>
-            <div style={{ fontSize: "0.68rem", color: `${C.amber}88`, textAlign: "center" }}>CSV</div>
-            <div style={{ fontSize: "0.68rem", color: C.amber, textAlign: "center" }}>Live</div>
-          </div>
-          <CompareBar label="Via Voice AI (phone)" csvVal={CSV_SNAP.bookedVoiceAI} liveVal={liveBkdVoiceAI} csvTotal={CSV_SNAP.booked} liveTotal={Math.max(liveBooked, 1)} color={C.green} />
-          <CompareBar label="Via Conversation AI / SMS" csvVal={CSV_SNAP.bookedConvAI} liveVal={liveBkdConvAI} csvTotal={CSV_SNAP.booked} liveTotal={Math.max(liveBooked, 1)} color={C.purple} />
-          <CompareBar label="Other / Manual" csvVal={CSV_SNAP.bookedOther} liveVal={liveBkdOther} csvTotal={CSV_SNAP.booked} liveTotal={Math.max(liveBooked, 1)} color={C.textFaint} />
+          <Bar label="Via Voice AI (phone)"      val={CSV_SNAP.bookedVoiceAI} total={CSV_SNAP.booked} color={C.green} />
+          <Bar label="Via Conversation AI / SMS" val={CSV_SNAP.bookedConvAI}  total={CSV_SNAP.booked} color={C.purple} />
+          <Bar label="Other / Manual"            val={CSV_SNAP.bookedOther}   total={CSV_SNAP.booked} color={C.textFaint} />
         </div>
       </div>
 
-      {/* Live contact table with filters */}
+      {/* Live contact table */}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px", alignItems: "center" }}>
         <input placeholder="Search name, phone, email…" value={search} onChange={e => setSearch(e.target.value)}
           style={{ background: C.panelDark, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 10px", color: C.text, fontSize: "0.82rem", width: "200px", outline: "none" }} />
