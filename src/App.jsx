@@ -961,33 +961,7 @@ const CSV_SNAP = {
   bookedOther: 27,
 };
 
-function ExportedData({ data }) {
-  const contacts = data?.contacts?.contacts || [];
-  const events = data?.appointments?.events || [];
-  const [techFilter, setTechFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [search, setSearch] = useState("");
-
-  const cTags = (c) => Array.isArray(c.tags) ? c.tags : [];
-
-  const getLastAppt = (c) => {
-    const cid = c.id;
-    const cname = getName(c);
-    return events
-      .filter(e => (cid && e.contactId === cid) || nameMatch(e.title || "", cname))
-      .sort((a, b) => new Date(b.startTime) - new Date(a.startTime))[0] || null;
-  };
-
-  const profilingScore = (c) => {
-    let s = 0;
-    if (hasName(c)) s++;
-    if (hasCF(c, CF.pestLocation)) s++;
-    if (hasCF(c, CF.isHomeowner, CF.homeownerPresent)) s++;
-    if (hasCF(c, CF.propertyType, CF.propertyClass)) s++;
-    if (hasZip(c)) s++;
-    return s;
-  };
-
+function ExportedData() {
   const Bar = ({ label, val, total, color }) => {
     const p = total ? Math.round((val / total) * 100) : 0;
     return (
@@ -1002,31 +976,6 @@ function ExportedData({ data }) {
       </div>
     );
   };
-
-  const techs = [...new Set(contacts.map(c => getCFValue(c, CF.assignedTech)).filter(Boolean))].sort();
-  let filtered = contacts;
-  if (search) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter(c => getName(c).toLowerCase().includes(q) || (c.phone || "").includes(q) || (c.email || "").toLowerCase().includes(q));
-  }
-  if (techFilter !== "all") {
-    filtered = techFilter === "unassigned"
-      ? filtered.filter(c => !getCFValue(c, CF.assignedTech))
-      : filtered.filter(c => getCFValue(c, CF.assignedTech) === techFilter);
-  }
-  if (statusFilter === "valid") filtered = filtered.filter(c => hasCF(c, CF.validLead));
-  if (statusFilter === "not_qualified") filtered = filtered.filter(c => cTags(c).includes("not_qualified"));
-  if (statusFilter === "needs_human") filtered = filtered.filter(c => cTags(c).includes("human_handover"));
-  if (statusFilter === "booked") filtered = filtered.filter(c => !!getLastAppt(c));
-
-  const chip = (label, active, onClick, accent = C.amber) => (
-    <button onClick={onClick} style={{
-      padding: "4px 10px", borderRadius: "12px", fontSize: "0.76rem",
-      border: `1px solid ${active ? accent : C.border}`,
-      background: active ? `${accent}22` : "transparent",
-      color: active ? accent : C.textDim, cursor: "pointer",
-    }}>{label}</button>
-  );
 
   return (
     <div>
@@ -1072,74 +1021,6 @@ function ExportedData({ data }) {
         </div>
       </div>
 
-      {/* Live contact table */}
-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px", alignItems: "center" }}>
-        <input placeholder="Search name, phone, email…" value={search} onChange={e => setSearch(e.target.value)}
-          style={{ background: C.panelDark, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 10px", color: C.text, fontSize: "0.82rem", width: "200px", outline: "none" }} />
-        {techs.length > 0 && (<>
-          <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Tech:</span>
-          {chip("All", techFilter === "all", () => setTechFilter("all"))}
-          {techs.map(t => chip(t, techFilter === t, () => setTechFilter(techFilter === t ? "all" : t), C.blue))}
-          {chip("Unassigned", techFilter === "unassigned", () => setTechFilter(techFilter === "unassigned" ? "all" : "unassigned"), C.textFaint)}
-        </>)}
-        <span style={{ fontSize: "0.72rem", color: C.textFaint, marginLeft: "4px" }}>Status:</span>
-        {chip("All", statusFilter === "all", () => setStatusFilter("all"))}
-        {chip("Valid", statusFilter === "valid", () => setStatusFilter(statusFilter === "valid" ? "all" : "valid"), C.green)}
-        {chip("Booked", statusFilter === "booked", () => setStatusFilter(statusFilter === "booked" ? "all" : "booked"), C.amber)}
-        {chip("Not Qualified", statusFilter === "not_qualified", () => setStatusFilter(statusFilter === "not_qualified" ? "all" : "not_qualified"), C.red)}
-        {chip("Needs Human", statusFilter === "needs_human", () => setStatusFilter(statusFilter === "needs_human" ? "all" : "needs_human"), "#a78bfa")}
-      </div>
-
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>
-          <span>Live Contact List</span>
-          <span style={{ fontSize: "0.72rem", color: C.textFaint, fontWeight: "400", textTransform: "none" }}>
-            {filtered.length !== contacts.length ? `${filtered.length} of ${contacts.length}` : `${contacts.length} contacts`}
-          </span>
-        </div>
-        <div style={{ maxHeight: "500px", overflowY: "auto" }}>
-          {filtered.slice(0, 200).map((c, i) => {
-            const name = c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
-            const tech = getCFValue(c, CF.assignedTech);
-            const valid = hasCF(c, CF.validLead);
-            const score = profilingScore(c);
-            const appt = getLastAppt(c);
-            const src = leadSource(c);
-            const tags = cTags(c);
-            const notQualified = tags.includes("not_qualified");
-            const humanHandover = tags.includes("human_handover");
-            const optout = tags.some(t => t === "optout");
-            return (
-              <div key={c.id || i} style={styles.row}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ ...styles.rowName, color: notQualified ? C.textDim : C.text }}>
-                    {name}
-                    {optout && <span style={{ ...styles.pill, marginLeft: "6px", background: `${C.textFaint}22`, color: C.textFaint }}>Opt Out</span>}
-                  </div>
-                  <div style={styles.rowSub}>{c.phone || "—"}{c.email ? ` · ${c.email}` : ""}{` · Added ${fmtDate(leadDate(c))}`}</div>
-                </div>
-                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0, maxWidth: "55%" }}>
-                  {src !== "No Source" && <span style={{ ...styles.pill, background: C.panelDark }}>{src}</span>}
-                  {tech && <span style={{ ...styles.pill, background: `${C.blue}22`, color: C.blue }}>{tech}</span>}
-                  {valid && <span style={{ ...styles.pill, background: `${C.green}22`, color: C.green }}>✓ Valid</span>}
-                  {notQualified && <span style={{ ...styles.pill, background: `${C.red}22`, color: C.red }}>Not Qualified</span>}
-                  {humanHandover && <span style={{ ...styles.pill, background: "#a78bfa22", color: "#a78bfa" }}>Needs Human</span>}
-                  <span style={{ ...styles.pill, background: score >= 4 ? `${C.green}22` : score >= 2 ? `${C.amber}22` : C.panelDark, color: score >= 4 ? C.green : score >= 2 ? C.amber : C.textFaint }}>{score}/5</span>
-                  {appt && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>Booked {fmtDate(toDate(appt.startTime))}</span>}
-                </div>
-              </div>
-            );
-          })}
-          {filtered.length > 200 && (
-            <div style={{ textAlign: "center", padding: "12px", color: C.textFaint, fontSize: "0.75rem" }}>
-              Showing first 200 of {filtered.length} — use filters or search to narrow
-            </div>
-          )}
-          {filtered.length === 0 && (
-            <div style={{ textAlign: "center", padding: "20px", color: C.textFaint }}>No contacts match the current filters.</div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -1328,7 +1209,7 @@ export default function App() {
         {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} callDetails={callDetails} onDrill={openDrill} />}
         {activeTab === "conversations" && <Conversations data={filteredData} onDrill={openDrill} />}
         {activeTab === "appointments" && <Appointments data={filteredData} />}
-        {activeTab === "exports" && <ExportedData data={filteredData} />}
+        {activeTab === "exports" && <ExportedData />}
         {activeTab === "ai" && <AIInsights analysis={analysis} analyzing={analyzing} analyzedAt={analyzedAt} onAnalyze={getAnalysis} />}
       </div>
       <DrillDownModal modal={modal} onClose={closeDrill} />
