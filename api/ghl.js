@@ -236,7 +236,7 @@ export default async function handler(req, res) {
 
   try {
     const now = Date.now();
-    const start = now - 90 * 24 * 60 * 60 * 1000;
+    const start = now - 730 * 24 * 60 * 60 * 1000;  // 2 years back for full appointment history
     const end   = now + 90 * 24 * 60 * 60 * 1000;
 
     const [contacts, conversations, appointments] = await Promise.all([
