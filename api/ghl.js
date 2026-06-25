@@ -20,7 +20,7 @@ async function fetchAllContacts(locationId, token) {
   const all = [];
   let startAfter = null;
   let startAfterId = null;
-  for (let page = 0; page < 10; page++) {
+  for (let page = 0; page < 15; page++) {
     let url = `${GHL_BASE}/contacts/?locationId=${locationId}&limit=100`;
     if (startAfter)   url += `&startAfter=${encodeURIComponent(startAfter)}`;
     if (startAfterId) url += `&startAfterId=${encodeURIComponent(startAfterId)}`;
