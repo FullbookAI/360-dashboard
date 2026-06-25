@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 const C = {
   bg: "#0D1B2A", panel: "#152638", panelDark: "#0A1520", border: "#1E3A52",
@@ -944,6 +944,374 @@ function AIInsights({ analysis, analyzing, analyzedAt, onAnalyze }) {
   );
 }
 
+// ─── Lead Intelligence tab ────────────────────────────────────────────────────
+const LI = {
+  paper:"#F7F6F2", ink:"#1E2A26", soft:"#5B6A63", ever:"#16352B",
+  signal:"#3FB984", signalD:"#2A8C63", amber:"#E0A458", amberD:"#C0883C",
+  clay:"#B5654B", na:"#9AA59E", line:"#E3E0D7", line2:"#D5D2C7", card:"#FFFFFF",
+};
+const SERIF = "'Fraunces', serif";
+const MONO  = "'IBM Plex Mono', monospace";
+const QDIMS = [
+  { key:"own", lab:"Homeowner",    vals:[["yes","Yes"],["no","No"]] },
+  { key:"prs", lab:"Owner present",vals:[["yes","Yes"],["no","No"]] },
+  { key:"loc", lab:"Pest location",vals:[["inside","Inside"],["outside","Outside"],["both","Both"]] },
+  { key:"pt",  lab:"Property type",vals:[["single_family","Single family"],["commercial","Commercial"],["other","Other"]] },
+  { key:"rc",  lab:"Use",          vals:[["residential","Residential"],["commercial","Commercial"]] },
+];
+const MON_ABB = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+
+function LISeg({ options, value, onChange }) {
+  return (
+    <div style={{ display:"inline-flex", background:"#ECEAE2", border:`1px solid ${LI.line2}`, borderRadius:"9px", padding:"3px", gap:"2px" }}>
+      {options.map(([v,label]) => (
+        <button key={v} onClick={() => onChange(v)} style={{
+          fontFamily:"Inter,sans-serif", fontSize:"12.5px", fontWeight:"500",
+          color: value===v ? "#fff" : LI.soft,
+          background: value===v ? LI.ever : "transparent",
+          border:0, padding:"6px 12px", borderRadius:"6px", cursor:"pointer",
+          boxShadow: value===v ? "0 1px 3px rgba(0,0,0,.12)" : "none",
+        }}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+function LeadIntelligence({ data }) {
+  const contacts = data?.contacts?.contacts || [];
+  const events   = data?.appointments?.events || [];
+
+  const [range, setRange] = useState("all");
+  const [src,   setSrc]   = useState("all");
+  const [ch,    setCh]    = useState("all");
+  const [qual,  setQual]  = useState({ own:null, prs:null, loc:null, pt:null, rc:null });
+
+  // Build a fast contactId → boolean booked lookup
+  const bookedIds = useMemo(() => new Set(events.filter(e => e.contactId).map(e => e.contactId)), [events]);
+
+  // Convert each contact to a flat row matching the HTML's DATA.rows schema
+  const allRows = useMemo(() => contacts.map(c => {
+    const tags = Array.isArray(c.tags) ? c.tags : [];
+    const isFB = leadSource(c) === "Facebook / Meta" || tags.some(t => t === "fb-lead-form" || t === "fb-number");
+    const rowSrc = isFB ? "fb" : "call";
+    const rawSrc = (c.source || c.sourceName || c.appSource || "").toLowerCase();
+    let rowCh = rawSrc.includes("third party") ? "voice" : rawSrc.includes("conversations ai") ? "sms" : "na";
+    const appt = bookedIds.has(c.id) ? 1 : 0;
+    if (appt && rowCh === "na") rowCh = "voice"; // untracked bookings are confirmed Voice AI
+
+    const ownRaw = getCFValue(c, CF.isHomeowner).toLowerCase();
+    const own = ownRaw === "yes" ? "yes" : ownRaw === "no" ? "no" : null;
+    const prsRaw = getCFValue(c, CF.homeownerPresent).toLowerCase();
+    const prs = prsRaw === "yes" ? "yes" : prsRaw === "no" ? "no" : null;
+    const locRaw = getCFValue(c, CF.pestLocation).toLowerCase();
+    const loc = locRaw || null;
+    const ptRaw = getCFValue(c, CF.propertyType).toLowerCase();
+    let pt = null;
+    if (ptRaw) {
+      if (ptRaw.includes("single") || (ptRaw.includes("home") && !ptRaw.includes("commercial"))) pt = "single_family";
+      else if (ptRaw.includes("commercial")) pt = "commercial";
+      else pt = "other";
+    }
+    const rcRaw = getCFValue(c, CF.propertyClass).toLowerCase();
+    const rc = rcRaw.includes("residential") ? "residential" : rcRaw.includes("commercial") ? "commercial" : null;
+    const d = (leadDate(c) || new Date()).toISOString().slice(0, 10);
+    return { d, src:rowSrc, ch:rowCh, appt, own, prs, loc, pt, rc,
+             nq: tags.includes("not_qualified") ? 1 : 0,
+             opt: tags.some(t => t === "optout") ? 1 : 0,
+             hh: tags.includes("human_handover") ? 1 : 0 };
+  }), [contacts, bookedIds]);
+
+  const anchor  = allRows.reduce((mx, r) => r.d > mx ? r.d : mx, "2020-01-01");
+
+  function daysBefore(n) {
+    const d = new Date(anchor + "T00:00:00"); d.setDate(d.getDate() - n); return d.toISOString().slice(0,10);
+  }
+  const lo = range === "all" ? null : daysBefore(+range);
+
+  function passBase(r, exceptDim) {
+    if (lo && r.d < lo) return false;
+    if (src !== "all" && r.src !== src) return false;
+    if (ch  !== "all" && r.ch  !== ch)  return false;
+    for (const k in qual) { if (k === exceptDim) continue; if (qual[k] !== null && r[k] !== qual[k]) return false; }
+    return true;
+  }
+
+  const rows      = allRows.filter(r => passBase(r, null));
+  const n         = rows.length;
+  const liPct     = (a, b) => b ? Math.round(a / b * 100) : 0;
+  const apptCount = rows.filter(r => r.appt).length;
+  const engCount  = rows.filter(r => r.own || r.prs || r.loc || r.pt || r.rc).length;
+  const ownCount  = rows.filter(r => r.own === "yes").length;
+  const nqCount   = rows.filter(r => r.nq).length;
+  const optCount  = rows.filter(r => r.opt).length;
+  const hhCount   = rows.filter(r => r.hh).length;
+  const chCounts  = { voice:0, sms:0 };
+  rows.filter(r => r.appt).forEach(r => { if (r.ch === "voice") chCounts.voice++; if (r.ch === "sms") chCounts.sms++; });
+  const aiShare   = apptCount ? Math.round((chCounts.voice + chCounts.sms) / apptCount * 100) : 0;
+  const chMax     = Math.max(chCounts.voice, chCounts.sms, 1);
+
+  // Trend by month
+  const trend = {};
+  rows.forEach(r => {
+    const k = r.d.slice(0, 7);
+    if (!trend[k]) trend[k] = { call:0, fb:0, appt:0 };
+    if (r.src === "fb") trend[k].fb++; else trend[k].call++;
+    if (r.appt) trend[k].appt++;
+  });
+  const trendKeys = Object.keys(trend).sort();
+
+  function TrendChart() {
+    if (!trendKeys.length) return <div style={{ padding:"40px", textAlign:"center", color:LI.na }}>No data in range.</div>;
+    const W=960,H=300,PL=46,PR=trendKeys.length>1?46:24,PT=24,PB=46;
+    const pw=W-PL-PR, ph=H-PT-PB, base=PT+ph;
+    const maxL = Math.max(...trendKeys.map(k => (trend[k].call||0)+(trend[k].fb||0)), 1);
+    const maxA = Math.max(...trendKeys.map(k => trend[k].appt||0), 1);
+    const slot  = pw/trendKeys.length, barw = Math.min(46, slot*0.5);
+    const sL=ph/maxL, sA=ph/maxA;
+    const els=[], pts=[];
+    // grid
+    for (let i=0;i<=4;i++) {
+      const y=PT+ph*i/4, val=Math.round(maxL*(1-i/4));
+      els.push(<line key={`g${i}`} x1={PL} y1={y} x2={W-PR} y2={y} stroke={i===4?"#D9D6CC":"#EEECE4"}/>);
+      els.push(<text key={`t${i}`} x={PL-8} y={y+4} textAnchor="end" fontFamily={MONO} fontSize="10.5" fill={LI.na}>{val}</text>);
+    }
+    for (let i=0;i<2;i++) {
+      const v=Math.round(maxA*(1-i)), y=PT+ph*i;
+      els.push(<text key={`ra${i}`} x={W-PR+8} y={y+4} textAnchor="start" fontFamily={MONO} fontSize="10.5" fill={LI.ever}>{v}</text>);
+    }
+    trendKeys.forEach((k,i) => {
+      const cx=PL+slot*i+slot/2, x=cx-barw/2;
+      const callH=(trend[k].call||0)*sL, fbH=(trend[k].fb||0)*sL;
+      const cy=base-callH, fy=cy-fbH;
+      if (trend[k].call) els.push(<rect key={`c${k}`} x={x} y={cy} width={barw} height={callH} fill={LI.ever} opacity="0.85"/>);
+      if (trend[k].fb)   els.push(<rect key={`f${k}`} x={x} y={fy} width={barw} height={fbH} rx="2" fill={LI.amber}/>);
+      pts.push([cx, base-(trend[k].appt||0)*sA, trend[k].appt||0]);
+      els.push(<text key={`lbl${k}`} x={cx} y={base+18} textAnchor="middle" fontFamily={MONO} fontSize="11" fill={LI.soft}>{MON_ABB[(+k.slice(5))-1]}</text>);
+    });
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", display:"block" }}>
+        {els}
+        {pts.length>1 && <polyline points={pts.map(p=>`${p[0]},${p[1]}`).join(" ")} fill="none" stroke={LI.ever} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>}
+        {pts.map(([cx,cy,v],i) => <g key={`pt${i}`}>
+          <circle cx={cx} cy={cy} r="4.5" fill="#fff" stroke={LI.ever} strokeWidth="2.5"/>
+          <text x={cx} y={cy-10} textAnchor="middle" fontFamily={SERIF} fontWeight="600" fontSize="13" fill={LI.ever}>{v}</text>
+        </g>)}
+      </svg>
+    );
+  }
+
+  const SH = (txt) => <span style={{ fontFamily:MONO, fontSize:"10px", letterSpacing:".11em", textTransform:"uppercase", color:LI.soft }}>{txt}</span>;
+  const dot = (col) => <span style={{ width:"10px", height:"10px", borderRadius:"3px", background:col, display:"inline-block", flexShrink:0 }}/>;
+
+  return (
+    <div style={{ background:LI.paper, margin:"-1rem", padding:"0 28px 60px", fontFamily:"Inter,sans-serif", color:LI.ink, lineHeight:"1.45" }}>
+
+      {/* Masthead */}
+      <div style={{ padding:"34px 0 20px", display:"flex", justifyContent:"space-between", alignItems:"flex-end", gap:"20px", borderBottom:`1px solid ${LI.line2}`, flexWrap:"wrap" }}>
+        <div>
+          <div style={{ fontFamily:MONO, fontSize:"11px", letterSpacing:".18em", textTransform:"uppercase", color:LI.soft }}>Lead Intelligence Dashboard</div>
+          <div style={{ fontFamily:SERIF, fontWeight:"500", fontSize:"33px", lineHeight:"1.05", margin:"7px 0 0", letterSpacing:"-.01em" }}>360 Rodent Control</div>
+          <div style={{ fontSize:"14px", color:LI.soft, marginTop:"2px" }}>AI capture · qualification · appointment booking</div>
+        </div>
+        <div style={{ fontFamily:MONO, fontSize:"12px", color:LI.ever, textAlign:"right" }}>
+          SHOWING <b style={{ fontSize:"15px", color:LI.signalD }}>{n.toLocaleString()}</b> OF {allRows.length.toLocaleString()} LEADS<br/>
+          <span style={{ color:LI.soft }}>{range==="all" ? "All time" : `Last ${range} days`} · {src==="all" ? "all sources" : src==="fb" ? "Facebook" : "incoming calls"}</span>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div style={{ position:"sticky", top:0, zIndex:20, background:LI.paper, padding:"16px 0 14px", marginBottom:"6px", borderBottom:`1px solid ${LI.line}` }}>
+        <div style={{ display:"flex", gap:"26px", flexWrap:"wrap", alignItems:"center" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
+            <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Period</span>
+            <LISeg options={[["30","30d"],["60","60d"],["90","90d"],["all","All time"]]} value={range} onChange={setRange}/>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
+            <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Source</span>
+            <LISeg options={[["all","All"],["fb","Facebook"],["call","Incoming calls"]]} value={src} onChange={setSrc}/>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
+            <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Booking channel</span>
+            <LISeg options={[["all","All"],["voice","Voice AI"],["sms","SMS AI"]]} value={ch} onChange={setCh}/>
+          </div>
+          <button onClick={() => { setRange("all"); setSrc("all"); setCh("all"); setQual({own:null,prs:null,loc:null,pt:null,rc:null}); }}
+            style={{ marginLeft:"auto", fontFamily:MONO, fontSize:"11px", color:LI.soft, background:"transparent", border:`1px solid ${LI.line2}`, borderRadius:"7px", padding:"7px 12px", cursor:"pointer" }}>
+            ✕ Reset all
+          </button>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:"1px", background:LI.line, border:`1px solid ${LI.line}`, borderRadius:"13px", overflow:"hidden", marginTop:"22px" }}>
+        {[
+          { lab:"Leads handled",          val:n,         sub:"in view",                    col:LI.ink },
+          { lab:"Appointments booked",    val:apptCount, sub:`${liPct(apptCount,n)}% booking rate`, col:LI.signalD },
+          { lab:"Confirmed homeowners",   val:ownCount,  sub:`${liPct(ownCount,n)}% of leads`,      col:LI.signalD },
+          { lab:"Opted out",              val:optCount,  sub:`${liPct(optCount,n)}% of leads`,      col:LI.clay },
+        ].map(({lab,val,sub,col}) => (
+          <div key={lab} style={{ background:LI.card, padding:"20px" }}>
+            {SH(lab)}
+            <div style={{ fontFamily:SERIF, fontWeight:"600", fontSize:"36px", lineHeight:1, marginTop:"11px", letterSpacing:"-.02em", color:col }}>{val.toLocaleString()}</div>
+            <div style={{ fontSize:"12px", color:LI.soft, marginTop:"6px" }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 01 — Funnel + Channels */}
+      <div style={{ paddingTop:"40px" }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:"13px", marginBottom:"18px", flexWrap:"wrap" }}>
+          <span style={{ fontFamily:MONO, fontSize:"12px", color:LI.signalD }}>01</span>
+          <span style={{ fontFamily:SERIF, fontWeight:"500", fontSize:"21px", letterSpacing:"-.01em" }}>Qualification funnel &amp; booking channels</span>
+          <span style={{ fontSize:"12.5px", color:LI.soft, marginLeft:"auto" }}>Every stage reflects the filters above.</span>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1.15fr 1fr", gap:"20px" }}>
+          <div style={{ background:LI.card, border:`1px solid ${LI.line}`, borderRadius:"13px", padding:"24px" }}>
+            <h3 style={{ margin:"0 0 3px", fontSize:"13.5px", fontWeight:"600" }}>From lead to booked appointment</h3>
+            <p style={{ fontSize:"12px", color:LI.soft, margin:"0 0 20px" }}>How leads move through capture, qualification, and booking.</p>
+            {[
+              { name:"Leads captured",            v:n,         col:LI.ever },
+              { name:"Engaged in qualification",  v:engCount,  col:LI.signalD },
+              { name:"Confirmed homeowner",        v:ownCount,  col:LI.signal },
+              { name:"Appointment booked",         v:apptCount, col:LI.amberD },
+            ].map((s,i,arr) => {
+              const w = n ? Math.max((s.v/n)*100, 2) : 2;
+              const prev = i>0 ? arr[i-1].v : null;
+              const conv = prev!=null && prev>0 ? Math.round((s.v/prev)*100) : null;
+              return (
+                <div key={s.name} style={{ marginBottom:"13px" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:"6px" }}>
+                    <span style={{ fontSize:"13px", fontWeight:"600", display:"flex", alignItems:"center", gap:"8px" }}>
+                      {dot(s.col)}{s.name}
+                    </span>
+                    <span style={{ fontFamily:MONO, fontSize:"11.5px", color:LI.soft }}>
+                      <span style={{ fontFamily:SERIF, fontSize:"18px", fontWeight:"600", color:LI.ink }}>{s.v.toLocaleString()}</span>
+                      {conv!=null ? ` · ${conv}% of prev` : ""}
+                    </span>
+                  </div>
+                  <div style={{ height:"30px", borderRadius:"7px", background:"#EFEDE5", overflow:"hidden" }}>
+                    <div style={{ width:`${w}%`, height:"100%", borderRadius:"7px", background:s.col, display:"flex", alignItems:"center", justifyContent:"flex-end", paddingRight:"10px" }}>
+                      <span style={{ color:"#fff", fontFamily:MONO, fontSize:"11px" }}>{liPct(s.v,n)}%</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ background:LI.card, border:`1px solid ${LI.line}`, borderRadius:"13px", padding:"24px" }}>
+            <h3 style={{ margin:"0 0 3px", fontSize:"13.5px", fontWeight:"600" }}>Who booked the appointment</h3>
+            <p style={{ fontSize:"12px", color:LI.soft, margin:"0 0 20px" }}>Appointments in view, by the channel that closed them.</p>
+            {[["voice","Voice AI",LI.signal],["sms","SMS AI",LI.signalD]].map(([k,lab,col]) => (
+              <div key={k} style={{ marginBottom:"17px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:"6px" }}>
+                  <span style={{ fontSize:"13px", fontWeight:"600", display:"flex", alignItems:"center", gap:"8px" }}>{dot(col)}{lab}</span>
+                  <span style={{ fontFamily:MONO, fontSize:"11.5px", color:LI.soft }}>
+                    <span style={{ fontFamily:SERIF, fontSize:"17px", fontWeight:"600", color:LI.ink }}>{chCounts[k]}</span> / {apptCount}
+                  </span>
+                </div>
+                <div style={{ height:"12px", borderRadius:"6px", background:"#EFEDE5", overflow:"hidden" }}>
+                  <div style={{ width:`${(chCounts[k]/chMax)*100}%`, height:"100%", borderRadius:"6px", background:col }}/>
+                </div>
+              </div>
+            ))}
+            <div style={{ marginTop:"14px", paddingTop:"14px", borderTop:`1px solid ${LI.line}`, fontSize:"11.5px", color:LI.soft, lineHeight:"1.6" }}>
+              <span style={{ fontFamily:SERIF, fontSize:"20px", fontWeight:"600", color:LI.signalD }}>{aiShare}%</span>
+              {" "}of booked appointments handled by AI agents (Voice + SMS).<br/>
+              <span style={{ marginTop:"6px", display:"block" }}>Voice AI includes bookings GHL didn't tag with a separate source — attributed correctly so every appointment is accounted for.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 02 — Qualification answers */}
+      <div style={{ paddingTop:"40px" }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:"13px", marginBottom:"18px", flexWrap:"wrap" }}>
+          <span style={{ fontFamily:MONO, fontSize:"12px", color:LI.signalD }}>02</span>
+          <span style={{ fontFamily:SERIF, fontWeight:"500", fontSize:"21px", letterSpacing:"-.01em" }}>Qualification answers — click to filter</span>
+          <span style={{ fontSize:"12.5px", color:LI.soft, marginLeft:"auto" }}>Tap any answer to slice the whole dashboard by it.</span>
+        </div>
+        <div style={{ background:LI.card, border:`1px solid ${LI.line}`, borderRadius:"13px", padding:"24px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))", gap:"18px" }}>
+            {QDIMS.map(dim => {
+              const sub = allRows.filter(r => passBase(r, dim.key));
+              const counts = {}; let max = 1;
+              dim.vals.forEach(([v]) => { counts[v] = sub.filter(r => r[dim.key]===v).length; if (counts[v]>max) max=counts[v]; });
+              return (
+                <div key={dim.key}>
+                  <div style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".08em", textTransform:"uppercase", color:LI.soft, marginBottom:"9px" }}>{dim.lab}</div>
+                  {dim.vals.map(([v,lab]) => {
+                    const on = qual[dim.key]===v;
+                    return (
+                      <button key={v} onClick={() => setQual(q => ({...q,[dim.key]:q[dim.key]===v?null:v}))}
+                        style={{ display:"flex", alignItems:"center", gap:"9px", width:"100%", textAlign:"left",
+                          background:on?"#EAF6F0":LI.card, border:`1px solid ${on?LI.signalD:LI.line2}`,
+                          borderRadius:"9px", padding:"9px 11px", marginBottom:"7px", cursor:"pointer", fontFamily:"inherit" }}>
+                        <span style={{ fontSize:"12.5px", fontWeight:"500", flexShrink:0, minWidth:"90px" }}>{lab}</span>
+                        <span style={{ flex:1, height:"7px", borderRadius:"4px", background:"#ECEAE2", overflow:"hidden" }}>
+                          <span style={{ display:"block", height:"100%", width:`${max?(counts[v]/max)*100:0}%`, background:on?LI.signalD:LI.signal, borderRadius:"4px" }}/>
+                        </span>
+                        <span style={{ fontFamily:MONO, fontSize:"11.5px", color:LI.soft, flexShrink:0, minWidth:"30px", textAlign:"right" }}>{counts[v]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 03 — Drop-off */}
+      <div style={{ paddingTop:"40px" }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:"13px", marginBottom:"18px", flexWrap:"wrap" }}>
+          <span style={{ fontFamily:MONO, fontSize:"12px", color:LI.signalD }}>03</span>
+          <span style={{ fontFamily:SERIF, fontWeight:"500", fontSize:"21px", letterSpacing:"-.01em" }}>Filtering &amp; drop-off</span>
+          <span style={{ fontSize:"12.5px", color:LI.soft, marginLeft:"auto" }}>Work the system absorbed so staff didn't have to.</span>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"20px" }}>
+          {[
+            { lab:"Engaged in qualification", val:engCount, col:LI.signalD, desc:"answered at least one qualifying question before any staff involvement." },
+            { lab:"Auto-filtered · not qualified", val:nqCount, col:LI.clay, desc:"flagged not qualified automatically, keeping the calendar clean." },
+            { lab:"Handed to a human",         val:hhCount, col:LI.ink,    desc:"escalated to staff when the case genuinely needed a person." },
+          ].map(({lab,val,col,desc}) => (
+            <div key={lab} style={{ background:LI.card, border:`1px solid ${LI.line}`, borderRadius:"13px", padding:"22px" }}>
+              <div style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".09em", textTransform:"uppercase", color:LI.soft }}>{lab}</div>
+              <div style={{ fontFamily:SERIF, fontWeight:"600", fontSize:"34px", lineHeight:1, margin:"12px 0 7px", letterSpacing:"-.02em", color:col }}>{val.toLocaleString()}</div>
+              <div style={{ fontSize:"12.5px", color:LI.soft }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 04 — Trend */}
+      <div style={{ paddingTop:"40px" }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:"13px", marginBottom:"18px", flexWrap:"wrap" }}>
+          <span style={{ fontFamily:MONO, fontSize:"12px", color:LI.signalD }}>04</span>
+          <span style={{ fontFamily:SERIF, fontWeight:"500", fontSize:"21px", letterSpacing:"-.01em" }}>Activity over time</span>
+          <span style={{ fontSize:"12.5px", color:LI.soft, marginLeft:"auto" }}>Bars = leads (dark inbound, amber Facebook). Line = appointments.</span>
+        </div>
+        <div style={{ background:LI.card, border:`1px solid ${LI.line}`, borderRadius:"13px", padding:"24px" }}>
+          <div style={{ display:"flex", gap:"18px", flexWrap:"wrap", fontSize:"12px", color:LI.soft, marginBottom:"12px" }}>
+            {[[LI.ever,"Incoming calls"],[LI.amber,"Facebook"]].map(([col,lab]) => (
+              <span key={lab} style={{ display:"flex", alignItems:"center", gap:"7px" }}>
+                <span style={{ width:"12px", height:"12px", borderRadius:"3px", background:col, display:"inline-block" }}/>{lab}
+              </span>
+            ))}
+            <span style={{ display:"flex", alignItems:"center", gap:"7px" }}>
+              <span style={{ width:"17px", height:"3px", borderRadius:"2px", background:LI.ever, display:"inline-block" }}/>Appointments
+            </span>
+          </div>
+          <TrendChart/>
+        </div>
+      </div>
+
+      <div style={{ marginTop:"46px", paddingTop:"22px", borderTop:`1px solid ${LI.line2}`, display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:"10px", fontSize:"11.5px", color:LI.soft, fontFamily:MONO }}>
+        <span>360 RODENT CONTROL · LEAD INTELLIGENCE</span>
+        <span>SOURCE: GHL LIVE API</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Exported Data tab ────────────────────────────────────────────────────────
 // CSV snapshot hardcoded from June 24, 2026 GHL export (1,229 contacts)
 const CSV_SNAP = {
@@ -1142,6 +1510,7 @@ export default function App() {
     { id: "conversations", label: "Conversations" },
     { id: "appointments", label: "Appointments" },
     { id: "exports", label: "Exported Data" },
+    { id: "intelligence", label: "Intelligence" },
     { id: "ai", label: "AI Insights" },
   ];
 
@@ -1210,6 +1579,7 @@ export default function App() {
         {activeTab === "conversations" && <Conversations data={filteredData} onDrill={openDrill} />}
         {activeTab === "appointments" && <Appointments data={filteredData} />}
         {activeTab === "exports" && <ExportedData />}
+        {activeTab === "intelligence" && <LeadIntelligence data={filteredData} />}
         {activeTab === "ai" && <AIInsights analysis={analysis} analyzing={analyzing} analyzedAt={analyzedAt} onAnalyze={getAnalysis} />}
       </div>
       <DrillDownModal modal={modal} onClose={closeDrill} />
