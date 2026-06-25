@@ -989,15 +989,26 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
   // Build a fast contactId → boolean booked lookup
   const bookedIds = useMemo(() => new Set(events.filter(e => e.contactId).map(e => e.contactId)), [events]);
 
+  // Map contactId → appointment source so we read the booking's source, not the contact's intake source
+  const apptSrcMap = useMemo(() => {
+    const m = new Map();
+    events.forEach(e => { if (e.contactId) m.set(e.contactId, (e.source || e.sourceName || e.appSource || "").toLowerCase()); });
+    return m;
+  }, [events]);
+
   // Convert each contact to a flat row matching the HTML's DATA.rows schema
   const allRows = useMemo(() => contacts.map(c => {
     const tags = Array.isArray(c.tags) ? c.tags : [];
     const isFB = leadSource(c) === "Facebook / Meta" || tags.some(t => t === "fb-lead-form" || t === "fb-number");
     const rowSrc = isFB ? "fb" : "call";
-    const rawSrc = (c.source || c.sourceName || c.appSource || "").toLowerCase();
-    let rowCh = rawSrc.includes("third party") ? "voice" : rawSrc.includes("conversations ai") ? "sms" : "na";
     const appt = bookedIds.has(c.id) ? 1 : 0;
-    if (appt && rowCh === "na") rowCh = "voice"; // untracked bookings are confirmed Voice AI
+    let rowCh = "na";
+    if (appt) {
+      const as = apptSrcMap.get(c.id) || "";
+      if (as.includes("conversations ai") || as.includes("conversations_ai")) rowCh = "sms";
+      else if (as.includes("third party") || as.includes("third_party") || as.includes("voice ai")) rowCh = "voice";
+      else rowCh = "voice"; // untagged booked → Voice AI (confirmed pattern)
+    }
 
     const ownRaw = getCFValue(c, CF.isHomeowner).toLowerCase();
     const own = ownRaw === "yes" ? "yes" : ownRaw === "no" ? "no" : null;
@@ -1019,7 +1030,7 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
              nq: tags.includes("not_qualified") ? 1 : 0,
              opt: tags.some(t => t === "optout") ? 1 : 0,
              hh: tags.includes("human_handover") ? 1 : 0 };
-  }), [contacts, bookedIds]);
+  }), [contacts, bookedIds, apptSrcMap]);
 
   const anchor  = allRows.reduce((mx, r) => r.d > mx ? r.d : mx, "2020-01-01");
 
