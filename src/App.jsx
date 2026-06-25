@@ -991,8 +991,15 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
 
   // Map contactId → appointment source so we read the booking's source, not the contact's intake source
   const apptSrcMap = useMemo(() => {
+    if (events.length > 0) console.log("[LI] sample appointment event keys:", Object.keys(events[0]), events[0]);
     const m = new Map();
-    events.forEach(e => { if (e.contactId) m.set(e.contactId, (e.source || e.sourceName || e.appSource || "").toLowerCase()); });
+    events.forEach(e => {
+      if (e.contactId) {
+        const src = (e.source || e.sourceName || e.appSource || e.bookingSource || e.appointmentSource || "").toLowerCase();
+        if (src) console.log("[LI] appt source for", e.contactId, "→", src);
+        m.set(e.contactId, src);
+      }
+    });
     return m;
   }, [events]);
 
