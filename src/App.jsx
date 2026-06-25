@@ -977,7 +977,7 @@ function LISeg({ options, value, onChange }) {
   );
 }
 
-function LeadIntelligence({ data }) {
+function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, lastUpdated, onRefresh }) {
   const contacts = data?.contacts?.contacts || [];
   const events   = data?.appointments?.events || [];
 
@@ -1113,9 +1113,18 @@ function LeadIntelligence({ data }) {
           <div style={{ fontFamily:SERIF, fontWeight:"500", fontSize:"33px", lineHeight:"1.05", margin:"7px 0 0", letterSpacing:"-.01em" }}>360 Rodent Control</div>
           <div style={{ fontSize:"14px", color:LI.soft, marginTop:"2px" }}>AI capture · qualification · appointment booking</div>
         </div>
-        <div style={{ fontFamily:MONO, fontSize:"12px", color:LI.ever, textAlign:"right" }}>
-          SHOWING <b style={{ fontSize:"15px", color:LI.signalD }}>{n.toLocaleString()}</b> OF {allRows.length.toLocaleString()} LEADS<br/>
-          <span style={{ color:LI.soft }}>{range==="all" ? "All time" : `Last ${range} days`} · {src==="all" ? "all sources" : src==="fb" ? "Facebook" : "incoming calls"}</span>
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"8px" }}>
+          <div style={{ fontFamily:MONO, fontSize:"12px", color:LI.ever, textAlign:"right" }}>
+            SHOWING <b style={{ fontSize:"15px", color:LI.signalD }}>{n.toLocaleString()}</b> OF {allRows.length.toLocaleString()} LEADS<br/>
+            <span style={{ color:LI.soft }}>{range==="all" ? "All time" : `Last ${range} days`} · {src==="all" ? "all sources" : src==="fb" ? "Facebook" : "incoming calls"}</span>
+          </div>
+          <div style={{ display:"flex", gap:"8px", alignItems:"center" }}>
+            {lastUpdated && <span style={{ fontFamily:MONO, fontSize:"10.5px", color:LI.na }}>Updated {lastUpdated.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span>}
+            <span style={{ fontFamily:MONO, fontSize:"10.5px", color:LI.signalD, display:"flex", alignItems:"center", gap:"4px" }}>
+              <span style={{ width:"7px", height:"7px", borderRadius:"50%", background:LI.signal, display:"inline-block" }}/>LIVE
+            </span>
+            <button onClick={onRefresh} style={{ fontFamily:MONO, fontSize:"11px", color:LI.ever, background:"transparent", border:`1px solid ${LI.line2}`, borderRadius:"7px", padding:"6px 12px", cursor:"pointer" }}>↻ Refresh</button>
+          </div>
         </div>
       </div>
 
@@ -1304,6 +1313,70 @@ function LeadIntelligence({ data }) {
         </div>
       </div>
 
+      {/* 05 — AI Analysis */}
+      <div style={{ paddingTop:"40px" }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:"13px", marginBottom:"18px", flexWrap:"wrap" }}>
+          <span style={{ fontFamily:MONO, fontSize:"12px", color:LI.signalD }}>05</span>
+          <span style={{ fontFamily:SERIF, fontWeight:"500", fontSize:"21px", letterSpacing:"-.01em" }}>AI analysis</span>
+          {analyzedAt && <span style={{ fontSize:"12px", color:LI.soft }}>Last run {analyzedAt.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span>}
+          {analyzedAt && <button onClick={() => onAnalyze(true)} disabled={analyzing} style={{ marginLeft:"auto", fontFamily:MONO, fontSize:"11px", color:LI.soft, background:"transparent", border:`1px solid ${LI.line2}`, borderRadius:"7px", padding:"6px 12px", cursor:"pointer" }}>↻ Re-run</button>}
+        </div>
+        <div style={{ background:LI.card, border:`1px solid ${LI.line}`, borderRadius:"13px", padding:"28px" }}>
+          {analyzing ? (
+            <div style={{ display:"flex", alignItems:"center", gap:"12px", color:LI.soft, fontFamily:"Inter,sans-serif", fontSize:"13.5px" }}>
+              <span style={{ width:"18px", height:"18px", border:`2px solid ${LI.line2}`, borderTopColor:LI.signalD, borderRadius:"50%", display:"inline-block", animation:"spin .8s linear infinite", flexShrink:0 }}/>
+              Claude is reviewing the account data…
+            </div>
+          ) : !analysis ? (
+            <div style={{ textAlign:"center", padding:"20px 0" }}>
+              <div style={{ fontFamily:SERIF, fontSize:"18px", fontWeight:"500", color:LI.ink, marginBottom:"10px" }}>Get an AI read on this data</div>
+              <div style={{ fontSize:"13px", color:LI.soft, marginBottom:"22px" }}>Claude reviews your leads, appointments, and qualification patterns and returns a plain-English summary with specific recommendations.</div>
+              <button onClick={() => onAnalyze(false)} style={{ fontFamily:MONO, fontSize:"12.5px", fontWeight:"500", color:"#fff", background:LI.ever, border:"none", borderRadius:"9px", padding:"13px 28px", cursor:"pointer", letterSpacing:".04em" }}>
+                GENERATE ANALYSIS
+              </button>
+            </div>
+          ) : (
+            <div style={{ fontFamily:"Inter,sans-serif" }}>
+              {analysis.summary && <p style={{ fontSize:"14px", lineHeight:"1.7", color:LI.ink, marginTop:0 }}>{analysis.summary}</p>}
+              {[
+                ["Lead Intake", analysis.leadInsights],
+                ["Campaigns", analysis.campaignInsights],
+                ["Conversations", analysis.conversationInsights],
+                ["Appointments", analysis.appointmentInsights],
+              ].filter(([,v]) => v).map(([title, items]) => (
+                <div key={title} style={{ marginTop:"18px" }}>
+                  <div style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft, marginBottom:"8px" }}>{title}</div>
+                  {(Array.isArray(items) ? items : [items]).map((it, i) => (
+                    <div key={i} style={{ display:"flex", gap:"10px", marginBottom:"6px" }}>
+                      <span style={{ color:LI.signalD, flexShrink:0, marginTop:"2px" }}>▸</span>
+                      <span style={{ fontSize:"13.5px", color:LI.ink, lineHeight:"1.6" }}>{it}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {(Array.isArray(analysis.redFlags) ? analysis.redFlags : analysis.redFlags ? [analysis.redFlags] : []).length > 0 && (
+                <div style={{ marginTop:"18px" }}>
+                  <div style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.clay, marginBottom:"8px" }}>⚠ Red Flags</div>
+                  {(Array.isArray(analysis.redFlags) ? analysis.redFlags : [analysis.redFlags]).map((it, i) => (
+                    <div key={i} style={{ display:"flex", gap:"10px", marginBottom:"6px" }}>
+                      <span style={{ color:LI.clay, flexShrink:0 }}>▸</span>
+                      <span style={{ fontSize:"13.5px", color:LI.ink, lineHeight:"1.6" }}>{it}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(Array.isArray(analysis.recommendations) ? analysis.recommendations : analysis.recommendations ? [analysis.recommendations] : []).map((r, i) => (
+                <div key={i} style={{ display:"flex", gap:"12px", marginTop:"10px", padding:"12px 14px", background:LI.paper, borderRadius:"9px", border:`1px solid ${LI.line}` }}>
+                  <span style={{ fontFamily:SERIF, fontWeight:"600", fontSize:"18px", color:LI.signalD, flexShrink:0, lineHeight:1 }}>{i+1}</span>
+                  <span style={{ fontSize:"13.5px", color:LI.ink, lineHeight:"1.6" }}>{r}</span>
+                </div>
+              ))}
+              {!analyzedAt && null}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div style={{ marginTop:"46px", paddingTop:"22px", borderTop:`1px solid ${LI.line2}`, display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:"10px", fontSize:"11.5px", color:LI.soft, fontFamily:MONO }}>
         <span>360 RODENT CONTROL · LEAD INTELLIGENCE</span>
         <span>SOURCE: GHL LIVE API</span>
@@ -1397,72 +1470,31 @@ function ExportedData() {
 export default function App() {
   const [step, setStep] = useState("loading");
   const [data, setData] = useState(null);
-  const [callDetails, setCallDetails] = useState([]);
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzedAt, setAnalyzedAt] = useState(null);
   const [loadMsg, setLoadMsg] = useState("Connecting to the account...");
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState("command");
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [timeRange, setTimeRange] = useState(30);
-  const [sourceFilter, setSourceFilter] = useState(null);
-  const [modal, setModal] = useState(null);
-
-  const openDrill = (title, rows) => setModal({ title, rows });
-  const closeDrill = () => setModal(null);
-
-  const rawContacts = data?.contacts?.contacts || [];
-  const rawConvos = data?.conversations?.conversations || [];
-  const rawEvents = data?.appointments?.events || [];
-
-  const fContacts = timeRange ? rawContacts.filter(c => withinRange(leadDate(c), timeRange)) : rawContacts;
-  const fConvos = timeRange ? rawConvos.filter(c => withinRange(convDate(c), timeRange)) : rawConvos;
-  const fEvents = rawEvents.filter(e => {
-    const d = toDate(e.startTime);
-    if (!d) return false;
-    if (d.getTime() >= Date.now()) return true;
-    return !timeRange || withinDays(d, timeRange);
-  });
-
-  // Source filter applied on top of time filter
-  const allSources = [...new Set(rawContacts.map(c => leadSource(c)).filter(s => s !== "No Source"))].sort();
-  const sfContacts = sourceFilter ? fContacts.filter(c => leadSource(c) === sourceFilter) : fContacts;
-  const sfIds = new Set(sfContacts.map(c => c.id).filter(Boolean));
-  const sfNames = new Set(sfContacts.map(c => getName(c)).filter(Boolean));
-  const sfConvos = sourceFilter ? fConvos.filter(c => (c.contactId && sfIds.has(c.contactId)) || sfNames.has(getName(c))) : fConvos;
-  const sfEvents = sourceFilter ? fEvents.filter(e => (e.contactId && sfIds.has(e.contactId)) || sfContacts.some(c => nameMatch(e.title || "", getName(c)))) : fEvents;
-
-  const filteredData = {
-    contacts: { contacts: sfContacts },
-    conversations: { conversations: sfConvos },
-    appointments: { events: sfEvents },
-    customFieldDefs: data?.customFieldDefs || [],
-  };
-
-  const runAnalysis = async (d, force = false) => {
-    const res = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        conversations: d.conversations?.conversations || [],
-        contacts: d.contacts?.contacts || [],
-        appointments: d.appointments?.events || [],
-        force,
-      }),
-    });
-    return await res.json();
-  };
 
   const getAnalysis = async (force = false) => {
     if (!data || analyzing) return;
     setAnalyzing(true);
     try {
-      const ai = await runAnalysis(data, force);
-      setAnalysis(ai);
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversations: data.conversations?.conversations || [],
+          contacts: data.contacts?.contacts || [],
+          appointments: data.appointments?.events || [],
+          force,
+        }),
+      });
+      setAnalysis(await res.json());
       setAnalyzedAt(new Date());
     } catch {
-      setAnalysis({ summary: "AI analysis unavailable — metrics are still computed from live data. Try again." });
+      setAnalysis({ summary: "AI analysis unavailable — metrics are still live. Try again." });
     } finally {
       setAnalyzing(false);
     }
@@ -1483,7 +1515,6 @@ export default function App() {
         appointments: raw.appointments || { events: [] },
         customFieldDefs: raw.customFieldDefs || [],
       });
-      setCallDetails(Array.isArray(raw.callDetails) ? raw.callDetails : []);
       setAnalysis(null);
       setAnalyzedAt(null);
       setLastUpdated(new Date());
@@ -1504,16 +1535,6 @@ export default function App() {
 
   useEffect(() => { load(); }, []);
 
-  const tabs = [
-    { id: "command", label: "Overview" },
-    { id: "funnel", label: "Lead Funnel" },
-    { id: "conversations", label: "Conversations" },
-    { id: "appointments", label: "Appointments" },
-    { id: "exports", label: "Exported Data" },
-    { id: "intelligence", label: "Intelligence" },
-    { id: "ai", label: "AI Insights" },
-  ];
-
   if (step === "loading") return (
     <div style={{ ...styles.app, ...styles.loadingScreen }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } } body { margin: 0; }`}</style>
@@ -1528,7 +1549,7 @@ export default function App() {
       <div style={styles.card}>
         <div style={styles.logo}>
           <div style={styles.logoIcon}>🐀</div>
-          <div><div style={styles.logoText}>360 Rodent Control</div><div style={styles.logoSub}>Team Admin Dashboard</div></div>
+          <div><div style={styles.logoText}>360 Rodent Control</div><div style={styles.logoSub}>Lead Intelligence Dashboard</div></div>
         </div>
         <div style={styles.errorBox}>{error}</div>
         <button style={styles.btn} onClick={() => load(false)}>Retry Live Connection</button>
@@ -1539,50 +1560,17 @@ export default function App() {
   );
 
   return (
-    <div style={styles.app}>
+    <div style={{ background: LI.paper, minHeight: "100vh" }}>
       <style>{`* { box-sizing: border-box; } body { margin: 0; } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <div style={styles.header}>
-        <div style={styles.headerLeft}>
-          <div style={styles.logoIcon}>🐀</div>
-          <div>
-            <div style={{ ...styles.logoText, fontSize: "1rem" }}>360 Rodent Control</div>
-            <div style={{ fontSize: "0.72rem", color: C.textFaint }}>Account Operations · Team Admin</div>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-          <TimeRangePicker value={timeRange} onChange={setTimeRange} />
-          {allSources.length > 0 && (
-            <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
-              <span style={{ fontSize: "0.72rem", color: C.textFaint, marginRight: "2px" }}>Source:</span>
-              <button onClick={() => setSourceFilter(null)} style={{ ...styles.rangeBtn, ...(sourceFilter === null ? styles.rangeBtnActive : {}) }}>All</button>
-              {allSources.map(s => (
-                <button key={s} onClick={() => setSourceFilter(s === sourceFilter ? null : s)}
-                  style={{ ...styles.rangeBtn, ...(sourceFilter === s ? styles.rangeBtnActive : {}) }}>
-                  {s.replace("Facebook / Meta", "FB").replace("Phone / Inbound Call", "Phone").replace("Website Form", "Web").replace("Manual Entry", "Manual")}
-                </button>
-              ))}
-            </div>
-          )}
-          {lastUpdated && <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Updated {fmtTime(lastUpdated)}</span>}
-          <span style={styles.badge}>● Live</span>
-          <button style={styles.refreshBtn} onClick={() => load(true)}>↻ Refresh</button>
-        </div>
-      </div>
-      <div style={styles.tabs}>
-        {tabs.map(t => (
-          <button key={t.id} style={{ ...styles.tab, ...(activeTab === t.id ? styles.tabActive : {}) }} onClick={() => setActiveTab(t.id)}>{t.label}</button>
-        ))}
-      </div>
-      <div style={styles.content}>
-        {activeTab === "command" && <CommandCenter analysis={analysis} data={filteredData} onAnalyze={getAnalysis} analyzing={analyzing} analyzedAt={analyzedAt} onDrill={openDrill} />}
-        {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} callDetails={callDetails} onDrill={openDrill} />}
-        {activeTab === "conversations" && <Conversations data={filteredData} onDrill={openDrill} />}
-        {activeTab === "appointments" && <Appointments data={filteredData} />}
-        {activeTab === "exports" && <ExportedData />}
-        {activeTab === "intelligence" && <LeadIntelligence data={filteredData} />}
-        {activeTab === "ai" && <AIInsights analysis={analysis} analyzing={analyzing} analyzedAt={analyzedAt} onAnalyze={getAnalysis} />}
-      </div>
-      <DrillDownModal modal={modal} onClose={closeDrill} />
+      <LeadIntelligence
+        data={data}
+        onAnalyze={getAnalysis}
+        analyzing={analyzing}
+        analysis={analysis}
+        analyzedAt={analyzedAt}
+        lastUpdated={lastUpdated}
+        onRefresh={() => load(true)}
+      />
     </div>
   );
 }
