@@ -705,7 +705,23 @@ function LeadFunnel({ analysis, data, callDetails = [], onDrill }) {
             })}
           </>
         )}
-        {callConvos.length === 0 && <div style={styles.insightText}>No call data in the selected time range.</div>}
+        {callConvos.length === 0 && (
+          <div style={styles.insightText}>
+            No call data in the selected time range.
+            {convos.length > 0 && (() => {
+              const typeSamples = {};
+              convos.forEach(c => {
+                const key = `${c.type}`;
+                if (!typeSamples[key]) typeSamples[key] = c.lastMessageBody?.slice(0, 60) || "(no body)";
+              });
+              return (
+                <div style={{ fontSize: "0.72rem", color: C.textFaint, marginTop: "6px" }}>
+                  Conversation types seen: {Object.entries(typeSamples).map(([t, sample]) => `${t} → "${sample}"`).join(" | ")}
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
     </div>
   );
