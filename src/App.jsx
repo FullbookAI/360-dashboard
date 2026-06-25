@@ -106,7 +106,8 @@ function isCallBody(body = "") {
   const b = body.toLowerCase();
   return b.includes("inbound call") || b.includes("outbound call") ||
          b.includes("voicemail") || b.includes("missed call") ||
-         /\d+m\d+s/.test(body);
+         b.includes("answered") || b.includes("no answer") ||
+         /\d+m\s*\d+s|\d+:\d+\s*(min|sec|duration)/i.test(body);
 }
 function convCategory(type, body = "") {
   const t = String(type ?? "").toLowerCase();
@@ -116,8 +117,10 @@ function convCategory(type, body = "") {
   if (t.includes("gmb") || t.includes("google")) return "gmb";
   if (t.includes("chat") || t.includes("live")) return "chat";
   if (t.includes("sms") || t === "1") return "sms";
-  // TYPE_PHONE covers both SMS and voice — use message body to tell them apart
-  if (t.includes("phone") || t.includes("call") || t === "3") {
+  // TYPE_CALL is an explicit voice-call record — always a call regardless of body
+  if (t === "type_call" || t === "call") return "call";
+  // TYPE_PHONE is ambiguous (SMS and voice on LC Phone) — inspect body
+  if (t.includes("phone") || t.includes("call")) {
     return isCallBody(body) ? "call" : "sms";
   }
   return "other";
