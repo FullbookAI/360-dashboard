@@ -75,9 +75,10 @@ function fmtDate(d) { return d ? d.toLocaleDateString([], { month: "short", day:
 function fmtDateTime(d) { return d ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"; }
 
 function leadSource(c) {
-  const srcRaw = (c.source || c.sourceName || "").toString().trim();
+  const srcRaw = (c.source || c.sourceName || c.appSource || "").toString().trim();
   if (!srcRaw) return "No Source";
   const s = srcRaw.toLowerCase();
+  if (s.includes("third party") || s === "third_party") return "Voice AI";
   if (s.includes("facebook") || s.includes("fb") || s.includes("meta") || s.includes("instagram")) return "Facebook / Meta";
   if (s.includes("google")) return "Google";
   if (s.includes("form") || s.includes("web") || s.includes("landing") || s.includes("site")) return "Website Form";
@@ -99,6 +100,38 @@ function nameMatch(a, b) {
   const bw = bn.split(/\s+/).filter(w => w.length > 2);
   return aw.some(w => bw.includes(w));
 }
+
+// ─── custom field helpers (IDs hardcoded — GHL definitions endpoint unavailable) ───
+const CF = {
+  pestLocation:     "nwaTYOb9vqY0BytfzLow",
+  isHomeowner:      "2BhPcaLNpQACv8CVt2WC",
+  homeownerPresent: "0veRRe4JOhmJwxIMUXLM",
+  propertyType:     "WXW5lULpj3ZlOcFBeUPy",
+  propertyClass:    "uk70xnmUw60TI4ReTgZf",
+  validLead:        "1X6z3qP9tDuaGglCTl16",
+  assignedTech:     "YNSiemHqclnDZpCCaXan",
+  _hcpTechId:       "vsYV3ExFzPfyzQi0dlRN",
+};
+function getCFValue(c, ...fieldIds) {
+  const cf = Array.isArray(c.customFields) ? c.customFields : [];
+  for (const id of fieldIds) {
+    const f = cf.find(x => x.id === id);
+    const v = (f?.value ?? f?.fieldValue ?? "").toString().trim();
+    if (v) return v;
+  }
+  return "";
+}
+function hasCF(c, ...fieldIds) {
+  const cf = Array.isArray(c.customFields) ? c.customFields : [];
+  return fieldIds.some(id => cf.some(f => f.id === id && (f.value ?? f.fieldValue ?? "").toString().trim()));
+}
+const NULL_NAME = /^[-–—\s]+$|^n\/?a$/i;
+function hasName(c) {
+  const f = (c.firstName || "").trim(), l = (c.lastName || "").trim();
+  const real = (v) => v.length > 0 && !NULL_NAME.test(v);
+  return real(f) || real(l);
+}
+function hasZip(c) { return !!(c.postalCode || c.postal_code || c.zip || "").trim(); }
 
 // GHL LC Phone puts ALL conversations under TYPE_PHONE.
 // Distinguish voice calls from SMS by inspecting lastMessageBody.
@@ -425,28 +458,6 @@ function CommandCenter({ analysis, data, onAnalyze, analyzing, analyzedAt, onDri
   const allReplied = convos.filter(c => (c.unreadCount || 0) > 0);
   const callThreads = convos.filter(c => isCall(c));
 
-  // Profiling funnel — hardcoded GHL custom field IDs (definitions endpoint unavailable)
-  const CF = {
-    pestLocation:     "nwaTYOb9vqY0BytfzLow",  // Pest Activity Location (inside/outside)
-    isHomeowner:      "2BhPcaLNpQACv8CVt2WC",  // Is Homeowner (yes/no)
-    homeownerPresent: "0veRRe4JOhmJwxIMUXLM",  // Homeowner Present (yes/no)
-    propertyType:     "WXW5lULpj3ZlOcFBeUPy",  // Property Type (single family home, etc.)
-    propertyClass:    "uk70xnmUw60TI4ReTgZf",  // Residential / Commercial
-    _internal:        "vsYV3ExFzPfyzQi0dlRN",  // GHL internal option refs
-    _staff1:          "1X6z3qP9tDuaGglCTl16",  // staff assignment field
-    _staff2:          "YNSiemHqclnDZpCCaXan",  // staff assignment field
-  };
-  const hasCF = (c, ...fieldIds) => {
-    const cf = Array.isArray(c.customFields) ? c.customFields : [];
-    return fieldIds.some(id => cf.some(f => f.id === id && (f.value ?? f.fieldValue ?? "").toString().trim()));
-  };
-  const NULL_NAME = /^[-–—\s]+$|^n\/?a$/i;
-  const hasName = (c) => {
-    const f = (c.firstName || "").trim(), l = (c.lastName || "").trim();
-    const real = (v) => v.length > 0 && !NULL_NAME.test(v);
-    return real(f) || real(l);
-  };
-  const hasZip = (c) => !!(c.postalCode || c.postal_code || c.zip || "").trim();
   const profilingStages = [
     { label: "Has Name",                 filter: (c) => hasName(c) },
     { label: "Pest Activity Location",   filter: (c) => hasCF(c, CF.pestLocation) },
@@ -933,6 +944,174 @@ function AIInsights({ analysis, analyzing, analyzedAt, onAnalyze }) {
   );
 }
 
+// ─── Exported Data tab ────────────────────────────────────────────────────────
+function ExportedData({ data }) {
+  const contacts = data?.contacts?.contacts || [];
+  const events = data?.appointments?.events || [];
+  const [techFilter, setTechFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const cTags = (c) => Array.isArray(c.tags) ? c.tags : [];
+
+  const getLastAppt = (c) => {
+    const cid = c.id;
+    const cname = getName(c);
+    return events
+      .filter(e => (cid && e.contactId === cid) || nameMatch(e.title || "", cname))
+      .sort((a, b) => (new Date(b.startTime) - new Date(a.startTime)))[0] || null;
+  };
+
+  const profilingScore = (c) => {
+    let s = 0;
+    if (hasName(c)) s++;
+    if (hasCF(c, CF.pestLocation)) s++;
+    if (hasCF(c, CF.isHomeowner, CF.homeownerPresent)) s++;
+    if (hasCF(c, CF.propertyType, CF.propertyClass)) s++;
+    if (hasZip(c)) s++;
+    return s;
+  };
+
+  const techs = [...new Set(contacts.map(c => getCFValue(c, CF.assignedTech)).filter(Boolean))].sort();
+
+  let filtered = contacts;
+  if (search) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter(c =>
+      getName(c).toLowerCase().includes(q) ||
+      (c.phone || "").includes(q) ||
+      (c.email || "").toLowerCase().includes(q)
+    );
+  }
+  if (techFilter !== "all") {
+    filtered = techFilter === "unassigned"
+      ? filtered.filter(c => !getCFValue(c, CF.assignedTech))
+      : filtered.filter(c => getCFValue(c, CF.assignedTech) === techFilter);
+  }
+  if (statusFilter === "valid") filtered = filtered.filter(c => hasCF(c, CF.validLead));
+  if (statusFilter === "not_qualified") filtered = filtered.filter(c => cTags(c).includes("not_qualified"));
+  if (statusFilter === "needs_human") filtered = filtered.filter(c => cTags(c).includes("human_handover"));
+  if (statusFilter === "booked") filtered = filtered.filter(c => !!getLastAppt(c));
+
+  const validCount = filtered.filter(c => hasCF(c, CF.validLead)).length;
+  const assignedCount = filtered.filter(c => getCFValue(c, CF.assignedTech)).length;
+  const bookedCount = filtered.filter(c => !!getLastAppt(c)).length;
+
+  const chip = (label, active, onClick, accent = C.amber) => (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "4px 10px", borderRadius: "12px", fontSize: "0.76rem",
+        border: `1px solid ${active ? accent : C.border}`,
+        background: active ? `${accent}22` : "transparent",
+        color: active ? accent : C.textDim,
+        cursor: "pointer",
+      }}
+    >{label}</button>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
+        <input
+          placeholder="Search name, phone, email…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{
+            background: C.panelDark, border: `1px solid ${C.border}`, borderRadius: "6px",
+            padding: "5px 10px", color: C.text, fontSize: "0.82rem", width: "200px", outline: "none",
+          }}
+        />
+        {techs.length > 0 && (
+          <>
+            <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Tech:</span>
+            {chip("All", techFilter === "all", () => setTechFilter("all"))}
+            {techs.map(t => chip(t, techFilter === t, () => setTechFilter(techFilter === t ? "all" : t), C.blue))}
+            {chip("Unassigned", techFilter === "unassigned", () => setTechFilter(techFilter === "unassigned" ? "all" : "unassigned"), C.textFaint)}
+          </>
+        )}
+        <span style={{ fontSize: "0.72rem", color: C.textFaint, marginLeft: "4px" }}>Status:</span>
+        {chip("All", statusFilter === "all", () => setStatusFilter("all"))}
+        {chip("Valid Lead", statusFilter === "valid", () => setStatusFilter(statusFilter === "valid" ? "all" : "valid"), C.green)}
+        {chip("Booked", statusFilter === "booked", () => setStatusFilter(statusFilter === "booked" ? "all" : "booked"), C.amber)}
+        {chip("Not Qualified", statusFilter === "not_qualified", () => setStatusFilter(statusFilter === "not_qualified" ? "all" : "not_qualified"), C.red)}
+        {chip("Needs Human", statusFilter === "needs_human", () => setStatusFilter(statusFilter === "needs_human" ? "all" : "needs_human"), "#a78bfa")}
+      </div>
+
+      <div style={styles.grid}>
+        <StatCard label="Contacts" value={filtered.length} />
+        <StatCard label="Valid Leads" value={validCount} accent={C.green} />
+        <StatCard label="Assigned" value={assignedCount} accent={C.blue} />
+        <StatCard label="Booked" value={bookedCount} accent={C.amber} />
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>
+          <span>Contact Database</span>
+          {filtered.length !== contacts.length && (
+            <span style={{ fontSize: "0.72rem", color: C.textFaint, fontWeight: "400", textTransform: "none" }}>
+              {filtered.length} of {contacts.length} shown
+            </span>
+          )}
+        </div>
+        <div style={{ maxHeight: "540px", overflowY: "auto" }}>
+          {filtered.slice(0, 200).map((c, i) => {
+            const name = c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
+            const tech = getCFValue(c, CF.assignedTech);
+            const valid = hasCF(c, CF.validLead);
+            const score = profilingScore(c);
+            const appt = getLastAppt(c);
+            const src = leadSource(c);
+            const tags = cTags(c);
+            const notQualified = tags.includes("not_qualified");
+            const humanHandover = tags.includes("human_handover");
+            const optout = tags.some(t => t === "optout");
+
+            return (
+              <div key={c.id || i} style={styles.row}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ ...styles.rowName, color: notQualified ? C.textDim : C.text }}>
+                    {name}
+                    {optout && <span style={{ ...styles.pill, marginLeft: "6px", background: `${C.textFaint}22`, color: C.textFaint }}>Opt Out</span>}
+                  </div>
+                  <div style={styles.rowSub}>
+                    {c.phone || "—"}
+                    {c.email ? ` · ${c.email}` : ""}
+                    {` · Added ${fmtDate(leadDate(c))}`}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0, maxWidth: "55%" }}>
+                  {src !== "No Source" && <span style={{ ...styles.pill, background: C.panelDark }}>{src}</span>}
+                  {tech && <span style={{ ...styles.pill, background: `${C.blue}22`, color: C.blue }}>{tech}</span>}
+                  {valid && <span style={{ ...styles.pill, background: `${C.green}22`, color: C.green }}>✓ Valid</span>}
+                  {notQualified && <span style={{ ...styles.pill, background: `${C.red}22`, color: C.red }}>Not Qualified</span>}
+                  {humanHandover && <span style={{ ...styles.pill, background: "#a78bfa22", color: "#a78bfa" }}>Needs Human</span>}
+                  <span style={{
+                    ...styles.pill,
+                    background: score >= 4 ? `${C.green}22` : score >= 2 ? `${C.amber}22` : C.panelDark,
+                    color: score >= 4 ? C.green : score >= 2 ? C.amber : C.textFaint,
+                  }}>{score}/5 profiled</span>
+                  {appt && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>
+                    Booked {fmtDate(toDate(appt.startTime))}
+                  </span>}
+                </div>
+              </div>
+            );
+          })}
+          {filtered.length > 200 && (
+            <div style={{ textAlign: "center", padding: "12px", color: C.textFaint, fontSize: "0.75rem" }}>
+              Showing first 200 of {filtered.length} — use filters or search to narrow results
+            </div>
+          )}
+          {filtered.length === 0 && (
+            <div style={{ textAlign: "center", padding: "20px", color: C.textFaint }}>No contacts match the current filters.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [step, setStep] = useState("loading");
@@ -1049,6 +1228,7 @@ export default function App() {
     { id: "funnel", label: "Lead Funnel" },
     { id: "conversations", label: "Conversations" },
     { id: "appointments", label: "Appointments" },
+    { id: "exports", label: "Exported Data" },
     { id: "ai", label: "AI Insights" },
   ];
 
@@ -1116,6 +1296,7 @@ export default function App() {
         {activeTab === "funnel" && <LeadFunnel analysis={analysis} data={filteredData} callDetails={callDetails} onDrill={openDrill} />}
         {activeTab === "conversations" && <Conversations data={filteredData} onDrill={openDrill} />}
         {activeTab === "appointments" && <Appointments data={filteredData} />}
+        {activeTab === "exports" && <ExportedData data={filteredData} />}
         {activeTab === "ai" && <AIInsights analysis={analysis} analyzing={analyzing} analyzedAt={analyzedAt} onAnalyze={getAnalysis} />}
       </div>
       <DrillDownModal modal={modal} onClose={closeDrill} />
