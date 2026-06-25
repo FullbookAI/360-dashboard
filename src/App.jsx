@@ -945,6 +945,22 @@ function AIInsights({ analysis, analyzing, analyzedAt, onAnalyze }) {
 }
 
 // ─── Exported Data tab ────────────────────────────────────────────────────────
+// CSV snapshot hardcoded from June 24, 2026 GHL export (1,229 contacts)
+const CSV_SNAP = {
+  date: "Jun 24, 2026",
+  total: 1229,
+  withName: 507,
+  withEmail: 316,
+  facebook: 216,        // is FB = 1
+  voiceAI: 41,          // App Source = Third Party, not FB
+  convAI: 9,            // App Source = Conversations Ai, not FB
+  unattributed: 963,    // no App Source, not FB
+  booked: 95,
+  bookedVoiceAI: 45,
+  bookedConvAI: 23,
+  bookedOther: 27,
+};
+
 function ExportedData({ data }) {
   const contacts = data?.contacts?.contacts || [];
   const events = data?.appointments?.events || [];
@@ -959,7 +975,7 @@ function ExportedData({ data }) {
     const cname = getName(c);
     return events
       .filter(e => (cid && e.contactId === cid) || nameMatch(e.title || "", cname))
-      .sort((a, b) => (new Date(b.startTime) - new Date(a.startTime)))[0] || null;
+      .sort((a, b) => new Date(b.startTime) - new Date(a.startTime))[0] || null;
   };
 
   const profilingScore = (c) => {
@@ -972,16 +988,56 @@ function ExportedData({ data }) {
     return s;
   };
 
-  const techs = [...new Set(contacts.map(c => getCFValue(c, CF.assignedTech)).filter(Boolean))].sort();
+  // Live source helpers — check raw field directly (appSource may differ from leadSource display)
+  const rawSrc = (c) => (c.source || c.sourceName || c.appSource || "").toLowerCase();
+  const isFBLive = (c) => leadSource(c) === "Facebook / Meta" || cTags(c).some(t => t === "fb-lead-form" || t === "fb-number");
+  const isVoiceAILive = (c) => rawSrc(c).includes("third party") || rawSrc(c) === "third_party";
+  const isConvAILive = (c) => rawSrc(c).includes("conversations ai") || rawSrc(c).includes("conversations_ai");
 
+  // Precompute live stats once
+  const liveTotal = contacts.length;
+  const liveWithName = contacts.filter(hasName).length;
+  const liveWithEmail = contacts.filter(c => !!(c.email || "").trim()).length;
+  const liveFB = contacts.filter(isFBLive).length;
+  const liveVoiceAI = contacts.filter(c => isVoiceAILive(c) && !isFBLive(c)).length;
+  const liveConvAI = contacts.filter(c => isConvAILive(c) && !isFBLive(c)).length;
+  const liveUnattr = liveTotal - liveFB - liveVoiceAI - liveConvAI;
+  const liveBooked = contacts.filter(c => !!getLastAppt(c)).length;
+  const liveBkdVoiceAI = contacts.filter(c => isVoiceAILive(c) && !!getLastAppt(c)).length;
+  const liveBkdConvAI = contacts.filter(c => isConvAILive(c) && !!getLastAppt(c)).length;
+  const liveBkdOther = Math.max(0, liveBooked - liveBkdVoiceAI - liveBkdConvAI);
+
+  // Bar showing CSV vs Live values side by side
+  const CompareBar = ({ label, csvVal, liveVal, csvTotal, liveTotal: lt, color }) => {
+    const cp = csvTotal ? Math.round((csvVal / csvTotal) * 100) : 0;
+    const lp = lt ? Math.round((liveVal / lt) * 100) : 0;
+    return (
+      <div style={{ marginBottom: "13px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px", alignItems: "baseline" }}>
+          <span style={{ fontSize: "0.8rem", color: C.textMute }}>{label}</span>
+          <div style={{ display: "flex", gap: "20px" }}>
+            <span style={{ fontSize: "0.78rem", color: `${C.amber}99` }}>{csvVal.toLocaleString()} <span style={{ color: C.textFaint, fontSize: "0.7rem" }}>({cp}%)</span></span>
+            <span style={{ fontSize: "0.78rem", color: C.amber }}>{liveVal.toLocaleString()} <span style={{ color: C.textFaint, fontSize: "0.7rem" }}>({lp}%)</span></span>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px" }}>
+          <div style={{ height: "5px", background: C.panelDark, borderRadius: "3px", overflow: "hidden" }}>
+            <div style={{ width: `${cp}%`, height: "100%", background: `${color}55`, borderRadius: "3px" }} />
+          </div>
+          <div style={{ height: "5px", background: C.panelDark, borderRadius: "3px", overflow: "hidden" }}>
+            <div style={{ width: `${lp}%`, height: "100%", background: color, borderRadius: "3px" }} />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Filters for live contact table
+  const techs = [...new Set(contacts.map(c => getCFValue(c, CF.assignedTech)).filter(Boolean))].sort();
   let filtered = contacts;
   if (search) {
     const q = search.toLowerCase();
-    filtered = filtered.filter(c =>
-      getName(c).toLowerCase().includes(q) ||
-      (c.phone || "").includes(q) ||
-      (c.email || "").toLowerCase().includes(q)
-    );
+    filtered = filtered.filter(c => getName(c).toLowerCase().includes(q) || (c.phone || "").includes(q) || (c.email || "").toLowerCase().includes(q));
   }
   if (techFilter !== "all") {
     filtered = techFilter === "unassigned"
@@ -993,68 +1049,115 @@ function ExportedData({ data }) {
   if (statusFilter === "needs_human") filtered = filtered.filter(c => cTags(c).includes("human_handover"));
   if (statusFilter === "booked") filtered = filtered.filter(c => !!getLastAppt(c));
 
-  const validCount = filtered.filter(c => hasCF(c, CF.validLead)).length;
-  const assignedCount = filtered.filter(c => getCFValue(c, CF.assignedTech)).length;
-  const bookedCount = filtered.filter(c => !!getLastAppt(c)).length;
-
   const chip = (label, active, onClick, accent = C.amber) => (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "4px 10px", borderRadius: "12px", fontSize: "0.76rem",
-        border: `1px solid ${active ? accent : C.border}`,
-        background: active ? `${accent}22` : "transparent",
-        color: active ? accent : C.textDim,
-        cursor: "pointer",
-      }}
-    >{label}</button>
+    <button onClick={onClick} style={{
+      padding: "4px 10px", borderRadius: "12px", fontSize: "0.76rem",
+      border: `1px solid ${active ? accent : C.border}`,
+      background: active ? `${accent}22` : "transparent",
+      color: active ? accent : C.textDim, cursor: "pointer",
+    }}>{label}</button>
   );
+
+  const diffBadge = (csv, live) => {
+    const d = live - csv;
+    if (d === 0) return null;
+    return <span style={{ fontSize: "0.68rem", color: d > 0 ? C.green : C.red, marginLeft: "6px" }}>{d > 0 ? `+${d}` : d} vs CSV</span>;
+  };
 
   return (
     <div>
-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
-        <input
-          placeholder="Search name, phone, email…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            background: C.panelDark, border: `1px solid ${C.border}`, borderRadius: "6px",
-            padding: "5px 10px", color: C.text, fontSize: "0.82rem", width: "200px", outline: "none",
-          }}
-        />
-        {techs.length > 0 && (
-          <>
-            <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Tech:</span>
-            {chip("All", techFilter === "all", () => setTechFilter("all"))}
-            {techs.map(t => chip(t, techFilter === t, () => setTechFilter(techFilter === t ? "all" : t), C.blue))}
-            {chip("Unassigned", techFilter === "unassigned", () => setTechFilter(techFilter === "unassigned" ? "all" : "unassigned"), C.textFaint)}
-          </>
-        )}
+      {/* Legend */}
+      <div style={{ display: "flex", gap: "20px", marginBottom: "14px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          <div style={{ width: "24px", height: "5px", background: `${C.amber}55`, borderRadius: "3px" }} />
+          <span style={{ fontSize: "0.72rem", color: C.textFaint }}>CSV Export ({CSV_SNAP.date})</span>
+        </div>
+        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          <div style={{ width: "24px", height: "5px", background: C.amber, borderRadius: "3px" }} />
+          <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Live GHL API ({liveTotal < CSV_SNAP.total ? `${CSV_SNAP.total - liveTotal} contacts still loading` : "up to date"})</span>
+        </div>
+      </div>
+
+      {/* Overview stat cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "12px" }}>
+        {[
+          { label: "Total Contacts", csv: CSV_SNAP.total, live: liveTotal },
+          { label: "Have a Name", csv: CSV_SNAP.withName, live: liveWithName },
+          { label: "Have an Email", csv: CSV_SNAP.withEmail, live: liveWithEmail },
+        ].map(({ label, csv, live: lv }) => (
+          <div key={label} style={{ ...styles.section, padding: "1rem", marginBottom: 0 }}>
+            <div style={{ fontSize: "0.7rem", color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>{label}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+              <div>
+                <div style={{ fontSize: "1.5rem", fontWeight: "700", color: `${C.amber}88` }}>{csv.toLocaleString()}</div>
+                <div style={{ fontSize: "0.65rem", color: C.textFaint, marginTop: "2px" }}>CSV</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: "1.5rem", fontWeight: "700", color: C.amber }}>{lv.toLocaleString()}{diffBadge(csv, lv)}</div>
+                <div style={{ fontSize: "0.65rem", color: C.textFaint, marginTop: "2px" }}>Live</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Source + Booking side by side */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>Initial Source</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 8px", marginBottom: "10px" }}>
+            <div style={{ fontSize: "0.68rem", color: `${C.amber}88`, textAlign: "center" }}>CSV</div>
+            <div style={{ fontSize: "0.68rem", color: C.amber, textAlign: "center" }}>Live</div>
+          </div>
+          <CompareBar label="Facebook" csvVal={CSV_SNAP.facebook} liveVal={liveFB} csvTotal={CSV_SNAP.total} liveTotal={liveTotal} color={C.blue} />
+          <CompareBar label="Voice AI (inbound phone)" csvVal={CSV_SNAP.voiceAI} liveVal={liveVoiceAI} csvTotal={CSV_SNAP.total} liveTotal={liveTotal} color={C.green} />
+          <CompareBar label="Conversation AI" csvVal={CSV_SNAP.convAI} liveVal={liveConvAI} csvTotal={CSV_SNAP.total} liveTotal={liveTotal} color={C.purple} />
+          <CompareBar label="Unattributed / Other" csvVal={CSV_SNAP.unattributed} liveVal={liveUnattr} csvTotal={CSV_SNAP.total} liveTotal={liveTotal} color={C.textFaint} />
+        </div>
+
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>
+            <span>Booking Channel</span>
+            <span style={{ fontSize: "0.72rem", fontWeight: "400", textTransform: "none", color: C.textFaint }}>
+              CSV: {CSV_SNAP.booked} booked · Live: {liveBooked} booked
+            </span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 8px", marginBottom: "10px" }}>
+            <div style={{ fontSize: "0.68rem", color: `${C.amber}88`, textAlign: "center" }}>CSV</div>
+            <div style={{ fontSize: "0.68rem", color: C.amber, textAlign: "center" }}>Live</div>
+          </div>
+          <CompareBar label="Via Voice AI (phone)" csvVal={CSV_SNAP.bookedVoiceAI} liveVal={liveBkdVoiceAI} csvTotal={CSV_SNAP.booked} liveTotal={Math.max(liveBooked, 1)} color={C.green} />
+          <CompareBar label="Via Conversation AI / SMS" csvVal={CSV_SNAP.bookedConvAI} liveVal={liveBkdConvAI} csvTotal={CSV_SNAP.booked} liveTotal={Math.max(liveBooked, 1)} color={C.purple} />
+          <CompareBar label="Other / Manual" csvVal={CSV_SNAP.bookedOther} liveVal={liveBkdOther} csvTotal={CSV_SNAP.booked} liveTotal={Math.max(liveBooked, 1)} color={C.textFaint} />
+        </div>
+      </div>
+
+      {/* Live contact table with filters */}
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px", alignItems: "center" }}>
+        <input placeholder="Search name, phone, email…" value={search} onChange={e => setSearch(e.target.value)}
+          style={{ background: C.panelDark, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 10px", color: C.text, fontSize: "0.82rem", width: "200px", outline: "none" }} />
+        {techs.length > 0 && (<>
+          <span style={{ fontSize: "0.72rem", color: C.textFaint }}>Tech:</span>
+          {chip("All", techFilter === "all", () => setTechFilter("all"))}
+          {techs.map(t => chip(t, techFilter === t, () => setTechFilter(techFilter === t ? "all" : t), C.blue))}
+          {chip("Unassigned", techFilter === "unassigned", () => setTechFilter(techFilter === "unassigned" ? "all" : "unassigned"), C.textFaint)}
+        </>)}
         <span style={{ fontSize: "0.72rem", color: C.textFaint, marginLeft: "4px" }}>Status:</span>
         {chip("All", statusFilter === "all", () => setStatusFilter("all"))}
-        {chip("Valid Lead", statusFilter === "valid", () => setStatusFilter(statusFilter === "valid" ? "all" : "valid"), C.green)}
+        {chip("Valid", statusFilter === "valid", () => setStatusFilter(statusFilter === "valid" ? "all" : "valid"), C.green)}
         {chip("Booked", statusFilter === "booked", () => setStatusFilter(statusFilter === "booked" ? "all" : "booked"), C.amber)}
         {chip("Not Qualified", statusFilter === "not_qualified", () => setStatusFilter(statusFilter === "not_qualified" ? "all" : "not_qualified"), C.red)}
         {chip("Needs Human", statusFilter === "needs_human", () => setStatusFilter(statusFilter === "needs_human" ? "all" : "needs_human"), "#a78bfa")}
       </div>
 
-      <div style={styles.grid}>
-        <StatCard label="Contacts" value={filtered.length} />
-        <StatCard label="Valid Leads" value={validCount} accent={C.green} />
-        <StatCard label="Assigned" value={assignedCount} accent={C.blue} />
-        <StatCard label="Booked" value={bookedCount} accent={C.amber} />
-      </div>
-
       <div style={styles.section}>
         <div style={styles.sectionTitle}>
-          <span>Contact Database</span>
-          {filtered.length !== contacts.length && (
-            <span style={{ fontSize: "0.72rem", color: C.textFaint, fontWeight: "400", textTransform: "none" }}>
-              {filtered.length} of {contacts.length} shown
-            </span>
-          )}
+          <span>Live Contact List</span>
+          <span style={{ fontSize: "0.72rem", color: C.textFaint, fontWeight: "400", textTransform: "none" }}>
+            {filtered.length !== contacts.length ? `${filtered.length} of ${contacts.length}` : `${contacts.length} contacts`}
+          </span>
         </div>
-        <div style={{ maxHeight: "540px", overflowY: "auto" }}>
+        <div style={{ maxHeight: "500px", overflowY: "auto" }}>
           {filtered.slice(0, 200).map((c, i) => {
             const name = c.contactName || c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
             const tech = getCFValue(c, CF.assignedTech);
@@ -1066,7 +1169,6 @@ function ExportedData({ data }) {
             const notQualified = tags.includes("not_qualified");
             const humanHandover = tags.includes("human_handover");
             const optout = tags.some(t => t === "optout");
-
             return (
               <div key={c.id || i} style={styles.row}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1074,11 +1176,7 @@ function ExportedData({ data }) {
                     {name}
                     {optout && <span style={{ ...styles.pill, marginLeft: "6px", background: `${C.textFaint}22`, color: C.textFaint }}>Opt Out</span>}
                   </div>
-                  <div style={styles.rowSub}>
-                    {c.phone || "—"}
-                    {c.email ? ` · ${c.email}` : ""}
-                    {` · Added ${fmtDate(leadDate(c))}`}
-                  </div>
+                  <div style={styles.rowSub}>{c.phone || "—"}{c.email ? ` · ${c.email}` : ""}{` · Added ${fmtDate(leadDate(c))}`}</div>
                 </div>
                 <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0, maxWidth: "55%" }}>
                   {src !== "No Source" && <span style={{ ...styles.pill, background: C.panelDark }}>{src}</span>}
@@ -1086,21 +1184,15 @@ function ExportedData({ data }) {
                   {valid && <span style={{ ...styles.pill, background: `${C.green}22`, color: C.green }}>✓ Valid</span>}
                   {notQualified && <span style={{ ...styles.pill, background: `${C.red}22`, color: C.red }}>Not Qualified</span>}
                   {humanHandover && <span style={{ ...styles.pill, background: "#a78bfa22", color: "#a78bfa" }}>Needs Human</span>}
-                  <span style={{
-                    ...styles.pill,
-                    background: score >= 4 ? `${C.green}22` : score >= 2 ? `${C.amber}22` : C.panelDark,
-                    color: score >= 4 ? C.green : score >= 2 ? C.amber : C.textFaint,
-                  }}>{score}/5 profiled</span>
-                  {appt && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>
-                    Booked {fmtDate(toDate(appt.startTime))}
-                  </span>}
+                  <span style={{ ...styles.pill, background: score >= 4 ? `${C.green}22` : score >= 2 ? `${C.amber}22` : C.panelDark, color: score >= 4 ? C.green : score >= 2 ? C.amber : C.textFaint }}>{score}/5</span>
+                  {appt && <span style={{ ...styles.pill, background: `${C.amber}22`, color: C.amber }}>Booked {fmtDate(toDate(appt.startTime))}</span>}
                 </div>
               </div>
             );
           })}
           {filtered.length > 200 && (
             <div style={{ textAlign: "center", padding: "12px", color: C.textFaint, fontSize: "0.75rem" }}>
-              Showing first 200 of {filtered.length} — use filters or search to narrow results
+              Showing first 200 of {filtered.length} — use filters or search to narrow
             </div>
           )}
           {filtered.length === 0 && (

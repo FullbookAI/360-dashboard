@@ -7,7 +7,9 @@
       "Bash(git push *)",
       "Bash(git commit --allow-empty -m ' *)",
       "Bash(grep -E \"\\\\.\\(env|json|js|jsx\\)$\")",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(grep -o '\"Contact Id\".*' \"C:/Users/jessi/.claude/projects/c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard/fa0814d5-e2bb-43cd-9b8c-82cd1481c011.jsonl\" | head -3 | cut -c1-200)",
+      "Read(//c/Users/jessi/.claude/projects/c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard/**)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jessi\\.claude\\projects\\c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard\\memory"
