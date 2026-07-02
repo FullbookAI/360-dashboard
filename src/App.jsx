@@ -980,6 +980,7 @@ function LISeg({ options, value, onChange }) {
 function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, lastUpdated, onRefresh }) {
   const contacts = data?.contacts?.contacts || [];
   const events   = data?.appointments?.events || [];
+  const convos   = data?.conversations?.conversations || [];
 
   const [range, setRange] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
@@ -987,6 +988,9 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
   const [src,   setSrc]   = useState("all");
   const [ch,    setCh]    = useState("all");
   const [qual,  setQual]  = useState({ own:null, prs:null, loc:null, pt:null, rc:null });
+  const [question,  setQuestion]  = useState("");
+  const [asking,    setAsking]    = useState(false);
+  const [qaHistory, setQaHistory] = useState([]);
 
   // Build a fast contactId → boolean booked lookup
   const bookedIds = useMemo(() => new Set(events.filter(e => e.contactId).map(e => e.contactId)), [events]);
@@ -1124,6 +1128,36 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
   const rangeLabel = range === "all" ? "All time"
     : range === "custom" ? (customFrom || customTo ? `${customFrom ? fmtLI(customFrom) : "Start"} – ${customTo ? fmtLI(customTo) : "Today"}` : "Custom range")
     : `Last ${range} days`;
+
+  async function askQuestion() {
+    const q = question.trim();
+    if (!q || asking) return;
+    setAsking(true);
+    setQuestion("");
+    try {
+      const filteredContacts = contacts.filter((c, i) => passBase(allRows[i], null));
+      const filteredIds = new Set(filteredContacts.map(c => c.id).filter(Boolean));
+      const filteredConvos = convos.filter(cv => !cv.contactId || filteredIds.has(cv.contactId));
+      const filteredEvents = events.filter(e => !e.contactId || filteredIds.has(e.contactId));
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: q,
+          contacts: filteredContacts,
+          conversations: filteredConvos,
+          appointments: filteredEvents,
+          filterSummary: `${rangeLabel} · source: ${src === "all" ? "all" : src} · booking channel: ${ch === "all" ? "all" : ch}`,
+        }),
+      });
+      const json = await res.json();
+      setQaHistory(h => [...h, { q, a: json.answer || "No answer returned." }]);
+    } catch (err) {
+      setQaHistory(h => [...h, { q, a: `Couldn't get an answer: ${err.message}` }]);
+    } finally {
+      setAsking(false);
+    }
+  }
 
   return (
     <div style={{ background:LI.paper, margin:"-1rem", padding:"0 28px 60px", fontFamily:"Inter,sans-serif", color:LI.ink, lineHeight:"1.45" }}>
@@ -1414,6 +1448,53 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
               {!analyzedAt && null}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* 06 — Ask AI */}
+      <div style={{ paddingTop:"40px" }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:"13px", marginBottom:"18px", flexWrap:"wrap" }}>
+          <span style={{ fontFamily:MONO, fontSize:"12px", color:LI.signalD }}>06</span>
+          <span style={{ fontFamily:SERIF, fontWeight:"500", fontSize:"21px", letterSpacing:"-.01em" }}>Ask AI about this data</span>
+          <span style={{ fontSize:"12.5px", color:LI.soft, marginLeft:"auto" }}>Answers reflect the leads, conversations &amp; appointments currently in view.</span>
+        </div>
+        <div style={{ background:LI.card, border:`1px solid ${LI.line}`, borderRadius:"13px", padding:"24px" }}>
+          {qaHistory.length === 0 && !asking && (
+            <div style={{ fontSize:"13px", color:LI.soft, marginBottom:"18px", lineHeight:"1.6" }}>
+              Ask a specific question — e.g. "Which Facebook leads haven't been contacted?" or "Why is the booking rate low this period?"
+            </div>
+          )}
+          {qaHistory.length > 0 && (
+            <div style={{ marginBottom:"18px", display:"flex", flexDirection:"column", gap:"18px" }}>
+              {qaHistory.map((qa, i) => (
+                <div key={i}>
+                  <div style={{ fontFamily:MONO, fontSize:"11px", letterSpacing:".06em", textTransform:"uppercase", color:LI.signalD, marginBottom:"6px" }}>Q · {qa.q}</div>
+                  <div style={{ fontSize:"13.5px", color:LI.ink, lineHeight:"1.65", whiteSpace:"pre-wrap" }}>{qa.a}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {asking && (
+            <div style={{ display:"flex", alignItems:"center", gap:"10px", color:LI.soft, fontSize:"13px", marginBottom:"18px" }}>
+              <span style={{ width:"16px", height:"16px", border:`2px solid ${LI.line2}`, borderTopColor:LI.signalD, borderRadius:"50%", display:"inline-block", animation:"spin .8s linear infinite" }}/>
+              Thinking…
+            </div>
+          )}
+          <div style={{ display:"flex", gap:"10px" }}>
+            <input
+              type="text"
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") askQuestion(); }}
+              placeholder="Ask a question about the data in view…"
+              disabled={asking}
+              style={{ flex:1, fontFamily:"Inter,sans-serif", fontSize:"13.5px", color:LI.ink, background:LI.paper, border:`1px solid ${LI.line2}`, borderRadius:"9px", padding:"11px 14px" }}
+            />
+            <button onClick={askQuestion} disabled={asking || !question.trim()}
+              style={{ fontFamily:MONO, fontSize:"12px", fontWeight:"500", color:"#fff", background: asking || !question.trim() ? LI.na : LI.ever, border:"none", borderRadius:"9px", padding:"11px 22px", cursor: asking || !question.trim() ? "default" : "pointer", letterSpacing:".03em", flexShrink:0 }}>
+              Ask
+            </button>
+          </div>
         </div>
       </div>
 

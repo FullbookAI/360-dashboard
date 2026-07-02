@@ -24,7 +24,8 @@
       "Bash(taskkill //F //IM node.exe //FI \"WINDOWTITLE eq *vite*\")",
       "Bash(pkill -f \"vite\")",
       "Bash(netstat -ano)",
-      "Bash(taskkill //F //PID 33872)"
+      "Bash(taskkill //F //PID 33872)",
+      "Bash(SCRATCH='C:\\\\Users\\\\jessi\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard\\\\f1f22214-a0c6-46a9-ac89-d47e2c971dba\\\\scratchpad' node test_ask_ai.mjs)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jessi\\.claude\\projects\\c--Users-jessi-OneDrive-Documents-FullbookAI-360-Dashboard\\memory"
