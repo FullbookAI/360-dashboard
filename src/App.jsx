@@ -982,6 +982,8 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
   const events   = data?.appointments?.events || [];
 
   const [range, setRange] = useState("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo,   setCustomTo]   = useState("");
   const [src,   setSrc]   = useState("all");
   const [ch,    setCh]    = useState("all");
   const [qual,  setQual]  = useState({ own:null, prs:null, loc:null, pt:null, rc:null });
@@ -1039,10 +1041,12 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
   function daysBefore(n) {
     const d = new Date(anchor + "T00:00:00"); d.setDate(d.getDate() - n); return d.toISOString().slice(0,10);
   }
-  const lo = range === "all" ? null : daysBefore(+range);
+  const lo = range === "custom" ? (customFrom || null) : range === "all" ? null : daysBefore(+range);
+  const hi = range === "custom" ? (customTo || null) : null;
 
   function passBase(r, exceptDim) {
     if (lo && r.d < lo) return false;
+    if (hi && r.d > hi) return false;
     if (src !== "all" && r.src !== src) return false;
     if (ch  !== "all" && r.ch  !== ch)  return false;
     for (const k in qual) { if (k === exceptDim) continue; if (qual[k] !== null && r[k] !== qual[k]) return false; }
@@ -1116,6 +1120,11 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
   const SH = (txt) => <span style={{ fontFamily:MONO, fontSize:"10px", letterSpacing:".11em", textTransform:"uppercase", color:LI.soft }}>{txt}</span>;
   const dot = (col) => <span style={{ width:"10px", height:"10px", borderRadius:"3px", background:col, display:"inline-block", flexShrink:0 }}/>;
 
+  const fmtLI = (s) => s ? new Date(s + "T00:00:00").toLocaleDateString([], { month:"short", day:"numeric", year:"numeric" }) : "";
+  const rangeLabel = range === "all" ? "All time"
+    : range === "custom" ? (customFrom || customTo ? `${customFrom ? fmtLI(customFrom) : "Start"} – ${customTo ? fmtLI(customTo) : "Today"}` : "Custom range")
+    : `Last ${range} days`;
+
   return (
     <div style={{ background:LI.paper, margin:"-1rem", padding:"0 28px 60px", fontFamily:"Inter,sans-serif", color:LI.ink, lineHeight:"1.45" }}>
 
@@ -1129,7 +1138,7 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
         <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"8px" }}>
           <div style={{ fontFamily:MONO, fontSize:"12px", color:LI.ever, textAlign:"right" }}>
             SHOWING <b style={{ fontSize:"15px", color:LI.signalD }}>{n.toLocaleString()}</b> OF {allRows.length.toLocaleString()} LEADS<br/>
-            <span style={{ color:LI.soft }}>{range==="all" ? "All time" : `Last ${range} days`} · {src==="all" ? "all sources" : src==="fb" ? "Facebook" : "incoming calls"}</span>
+            <span style={{ color:LI.soft }}>{rangeLabel} · {src==="all" ? "all sources" : src==="fb" ? "Facebook" : "incoming calls"}</span>
           </div>
           <div style={{ display:"flex", gap:"8px", alignItems:"center" }}>
             {lastUpdated && <span style={{ fontFamily:MONO, fontSize:"10.5px", color:LI.na }}>Updated {lastUpdated.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span>}
@@ -1146,7 +1155,7 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
         <div style={{ display:"flex", gap:"26px", flexWrap:"wrap", alignItems:"center" }}>
           <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
             <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Period</span>
-            <LISeg options={[["30","30d"],["60","60d"],["90","90d"],["all","All time"]]} value={range} onChange={setRange}/>
+            <LISeg options={[["30","30d"],["60","60d"],["90","90d"],["all","All time"],["custom","Custom"]]} value={range} onChange={setRange}/>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
             <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Source</span>
@@ -1156,11 +1165,29 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
             <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Booking channel</span>
             <LISeg options={[["all","All"],["voice","Voice AI"],["sms","SMS AI"]]} value={ch} onChange={setCh}/>
           </div>
-          <button onClick={() => { setRange("all"); setSrc("all"); setCh("all"); setQual({own:null,prs:null,loc:null,pt:null,rc:null}); }}
+          <button onClick={() => { setRange("all"); setCustomFrom(""); setCustomTo(""); setSrc("all"); setCh("all"); setQual({own:null,prs:null,loc:null,pt:null,rc:null}); }}
             style={{ marginLeft:"auto", fontFamily:MONO, fontSize:"11px", color:LI.soft, background:"transparent", border:`1px solid ${LI.line2}`, borderRadius:"7px", padding:"7px 12px", cursor:"pointer" }}>
             ✕ Reset all
           </button>
         </div>
+        {range === "custom" && (
+          <div style={{ display:"flex", alignItems:"center", gap:"10px", marginTop:"14px" }}>
+            <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Date range</span>
+            <input type="date" value={customFrom} max={customTo || undefined}
+              onChange={e => setCustomFrom(e.target.value)}
+              style={{ fontFamily:MONO, fontSize:"12px", color:LI.ink, background:LI.card, border:`1px solid ${LI.line2}`, borderRadius:"7px", padding:"6px 10px" }}/>
+            <span style={{ color:LI.soft, fontSize:"12px" }}>to</span>
+            <input type="date" value={customTo} min={customFrom || undefined}
+              onChange={e => setCustomTo(e.target.value)}
+              style={{ fontFamily:MONO, fontSize:"12px", color:LI.ink, background:LI.card, border:`1px solid ${LI.line2}`, borderRadius:"7px", padding:"6px 10px" }}/>
+            {(customFrom || customTo) && (
+              <button onClick={() => { setCustomFrom(""); setCustomTo(""); }}
+                style={{ fontFamily:MONO, fontSize:"11px", color:LI.soft, background:"transparent", border:`1px solid ${LI.line2}`, borderRadius:"7px", padding:"6px 10px", cursor:"pointer" }}>
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* KPIs */}
