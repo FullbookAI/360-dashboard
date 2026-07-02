@@ -260,22 +260,23 @@ function buildFunnelDetails(contacts, convos, events) {
 const _now = Date.now();
 const _h = (h) => new Date(_now + h * 3600000).toISOString();
 const _d = (d) => new Date(_now - d * 86400000).toISOString();
+const _bookedAfter = (leadDaysAgo, gapHours) => new Date(_now - leadDaysAgo * 86400000 + gapHours * 3600000).toISOString();
 const DEMO = {
   contacts: { contacts: [
-    { contactName: "Maria Delgado", phone: "(512) 555-0142", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Spring Rodent Promo" }, dateAdded: _d(0) },
-    { contactName: "James Okafor", phone: "(512) 555-0198", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Attic Rats Lookalike" }, dateAdded: _d(0) },
-    { contactName: "Priya Nair", phone: "(512) 555-0177", source: "website form", dateAdded: _d(0) },
-    { contactName: "Tyler Brooks", phone: "(737) 555-0110", source: "facebook", attributionSource: { medium: "paid" }, dateAdded: _d(1) },
-    { contactName: "Sofia Russo", phone: "(512) 555-0166", source: "google", dateAdded: _d(1) },
-    { contactName: "Aaron Webb", phone: "(512) 555-0123", source: "referral", dateAdded: _d(2) },
-    { contactName: "Lena Fischer", phone: "(737) 555-0188", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Spring Rodent Promo" }, dateAdded: _d(2) },
-    { contactName: "Marcus Hale", phone: "(512) 555-0144", source: "google", dateAdded: _d(3) },
-    { contactName: "Dana Cole", phone: "(512) 555-0155", source: "website form", dateAdded: _d(4) },
-    { contactName: "Omar Haddad", phone: "(737) 555-0133", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Attic Rats Lookalike" }, dateAdded: _d(5) },
-    { contactName: "Grace Lin", phone: "(512) 555-0190", source: "referral", dateAdded: _d(6) },
-    { contactName: "Ethan Pratt", phone: "(512) 555-0101", source: "google", dateAdded: _d(8) },
-    { contactName: "Carmen Ruiz", phone: "(512) 555-0200", source: "phone", dateAdded: _d(1) },
-    { contactName: "Derek Nash", phone: "(737) 555-0211", source: "phone", dateAdded: _d(3) },
+    { id: "c1", contactName: "Maria Delgado", phone: "(512) 555-0142", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Spring Rodent Promo" }, dateAdded: _d(0) },
+    { id: "c2", contactName: "James Okafor", phone: "(512) 555-0198", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Attic Rats Lookalike" }, dateAdded: _d(0) },
+    { id: "c3", contactName: "Priya Nair", phone: "(512) 555-0177", source: "website form", dateAdded: _d(0) },
+    { id: "c4", contactName: "Tyler Brooks", phone: "(737) 555-0110", source: "facebook", attributionSource: { medium: "paid" }, dateAdded: _d(1) },
+    { id: "c5", contactName: "Sofia Russo", phone: "(512) 555-0166", source: "google", dateAdded: _d(1) },
+    { id: "c6", contactName: "Aaron Webb", phone: "(512) 555-0123", source: "referral", dateAdded: _d(2) },
+    { id: "c7", contactName: "Lena Fischer", phone: "(737) 555-0188", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Spring Rodent Promo" }, dateAdded: _d(2) },
+    { id: "c8", contactName: "Marcus Hale", phone: "(512) 555-0144", source: "google", dateAdded: _d(3) },
+    { id: "c9", contactName: "Dana Cole", phone: "(512) 555-0155", source: "website form", dateAdded: _d(4) },
+    { id: "c10", contactName: "Omar Haddad", phone: "(737) 555-0133", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Attic Rats Lookalike" }, dateAdded: _d(5) },
+    { id: "c11", contactName: "Grace Lin", phone: "(512) 555-0190", source: "referral", dateAdded: _d(6) },
+    { id: "c12", contactName: "Ethan Pratt", phone: "(512) 555-0101", source: "google", dateAdded: _d(8) },
+    { id: "c13", contactName: "Carmen Ruiz", phone: "(512) 555-0200", source: "phone", dateAdded: _d(1) },
+    { id: "c14", contactName: "Derek Nash", phone: "(737) 555-0211", source: "phone", dateAdded: _d(3) },
   ] },
   conversations: { conversations: [
     { contactName: "Maria Delgado", type: "TYPE_SMS", lastMessageBody: "Hi, do you handle roof rats? Saw your ad.", unreadCount: 2, lastMessageDate: _d(0) },
@@ -293,15 +294,15 @@ const DEMO = {
     { contactName: "Grace Lin", type: "TYPE_SMS", lastMessageBody: "Do you service North Austin?", unreadCount: 1, lastMessageDate: _d(6) },
   ] },
   appointments: { events: [
-    { title: "Inspection · Maria Delgado", startTime: _h(20), appointmentStatus: "new", assignedUserId: "Tech A" },
-    { title: "Treatment · Tyler Brooks", startTime: _h(28), appointmentStatus: "new", assignedUserId: "Tech B" },
-    { title: "Inspection · Priya Nair", startTime: _h(46), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
-    { title: "Re-treat · Omar Haddad", startTime: _h(54), appointmentStatus: "new", assignedUserId: "Tech B" },
-    { title: "Treatment · Dana Cole", startTime: _h(72), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
-    { title: "Inspection · Sofia Russo", startTime: _h(96), appointmentStatus: "confirmed", assignedUserId: "Tech B" },
-    { title: "Treatment · Marcus Hale", startTime: _h(-24), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
-    { title: "Inspection · Aaron Webb", startTime: _h(-48), appointmentStatus: "showed", assignedUserId: "Tech B" },
-    { title: "Consultation · Carmen Ruiz", startTime: _h(32), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
+    { title: "Inspection · Maria Delgado", contactId: "c1", startTime: _h(20), dateAdded: _bookedAfter(0, 3), appointmentStatus: "new", assignedUserId: "Tech A" },
+    { title: "Treatment · Tyler Brooks", contactId: "c4", startTime: _h(28), dateAdded: _bookedAfter(1, 26), appointmentStatus: "new", assignedUserId: "Tech B" },
+    { title: "Inspection · Priya Nair", contactId: "c3", startTime: _h(46), dateAdded: _bookedAfter(0, 5), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
+    { title: "Re-treat · Omar Haddad", contactId: "c10", startTime: _h(54), dateAdded: _bookedAfter(5, 48), appointmentStatus: "new", assignedUserId: "Tech B" },
+    { title: "Treatment · Dana Cole", contactId: "c9", startTime: _h(72), dateAdded: _bookedAfter(4, 20), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
+    { title: "Inspection · Sofia Russo", contactId: "c5", startTime: _h(96), dateAdded: _bookedAfter(1, 30), appointmentStatus: "confirmed", assignedUserId: "Tech B" },
+    { title: "Treatment · Marcus Hale", contactId: "c8", startTime: _h(-24), dateAdded: _bookedAfter(3, 10), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
+    { title: "Inspection · Aaron Webb", contactId: "c6", startTime: _h(-48), dateAdded: _bookedAfter(2, 15), appointmentStatus: "showed", assignedUserId: "Tech B" },
+    { title: "Consultation · Carmen Ruiz", contactId: "c13", startTime: _h(32), dateAdded: _bookedAfter(1, 8), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
   ] },
 };
 
@@ -1004,6 +1005,19 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
     return m;
   }, [events]);
 
+  // Map contactId → earliest date the appointment record was created (when it was booked, not the meeting time)
+  const apptBookedMap = useMemo(() => {
+    const m = new Map();
+    events.forEach(e => {
+      if (!e.contactId) return;
+      const d = toDate(e.dateAdded);
+      if (!d) return;
+      const existing = m.get(e.contactId);
+      if (!existing || d < existing) m.set(e.contactId, d);
+    });
+    return m;
+  }, [events]);
+
   // Convert each contact to a flat row matching the HTML's DATA.rows schema
   const allRows = useMemo(() => contacts.map(c => {
     const tags = Array.isArray(c.tags) ? c.tags : [];
@@ -1061,6 +1075,30 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
   const n         = rows.length;
   const liPct     = (a, b) => b ? Math.round(a / b * 100) : 0;
   const apptCount = rows.filter(r => r.appt).length;
+
+  // Time from lead created to appointment booked, for leads currently in view
+  const bookingGapsMs = [];
+  contacts.forEach((c, i) => {
+    if (!c.id || !passBase(allRows[i], null)) return;
+    const bookedAt = apptBookedMap.get(c.id);
+    const leadAt = leadDate(c);
+    if (!bookedAt || !leadAt) return;
+    const gap = bookedAt.getTime() - leadAt.getTime();
+    if (gap >= 0) bookingGapsMs.push(gap);
+  });
+  const sortedGaps = [...bookingGapsMs].sort((a, b) => a - b);
+  const medianGapMs = sortedGaps.length
+    ? (sortedGaps.length % 2 ? sortedGaps[(sortedGaps.length - 1) / 2] : (sortedGaps[sortedGaps.length / 2 - 1] + sortedGaps[sortedGaps.length / 2]) / 2)
+    : null;
+  const avgGapMs = sortedGaps.length ? sortedGaps.reduce((a, b) => a + b, 0) / sortedGaps.length : null;
+  function fmtGap(ms) {
+    if (ms == null) return "—";
+    const min = ms / 60000;
+    if (min < 60) return `${Math.round(min)}m`;
+    const hrs = min / 60;
+    if (hrs < 48) return `${Math.round(hrs * 10) / 10}h`;
+    return `${Math.round((hrs / 24) * 10) / 10}d`;
+  }
   const engCount  = rows.filter(r => r.own || r.prs || r.loc || r.pt || r.rc).length;
   const ownCount  = rows.filter(r => r.own === "yes").length;
   const nqCount   = rows.filter(r => r.nq).length;
@@ -1236,6 +1274,22 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
             {SH(lab)}
             <div style={{ fontFamily:SERIF, fontWeight:"600", fontSize:"36px", lineHeight:1, marginTop:"11px", letterSpacing:"-.02em", color:col }}>{val.toLocaleString()}</div>
             <div style={{ fontSize:"12px", color:LI.soft, marginTop:"6px" }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Speed to booking */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:"1px", background:LI.line, border:`1px solid ${LI.line}`, borderRadius:"13px", overflow:"hidden", marginTop:"1px" }}>
+        {[
+          { lab:"Median time to book",  val:fmtGap(medianGapMs), col:LI.signalD },
+          { lab:"Average time to book", val:fmtGap(avgGapMs),    col:LI.amberD },
+        ].map(({lab,val,col}) => (
+          <div key={lab} style={{ background:LI.card, padding:"20px" }}>
+            {SH(lab)}
+            <div style={{ fontFamily:SERIF, fontWeight:"600", fontSize:"36px", lineHeight:1, marginTop:"11px", letterSpacing:"-.02em", color: bookingGapsMs.length ? col : LI.na }}>{val}</div>
+            <div style={{ fontSize:"12px", color:LI.soft, marginTop:"6px" }}>
+              {bookingGapsMs.length ? `lead created → appointment booked · ${bookingGapsMs.length} booking${bookingGapsMs.length !== 1 ? "s" : ""} with data` : "no bookings with timing data in view"}
+            </div>
           </div>
         ))}
       </div>
