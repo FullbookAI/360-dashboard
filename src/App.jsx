@@ -73,6 +73,21 @@ function fmtTime(d) { return d ? d.toLocaleTimeString([], { hour: "numeric", min
 function pct(n, d) { return d ? Math.round((n / d) * 100) : 0; }
 function fmtDate(d) { return d ? d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—"; }
 function fmtDateTime(d) { return d ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"; }
+function median(arr) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+function average(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
+function fmtGap(ms) {
+  if (ms == null) return "—";
+  const min = ms / 60000;
+  if (min < 60) return `${Math.round(min)}m`;
+  const hrs = min / 60;
+  if (hrs < 48) return `${Math.round(hrs * 10) / 10}h`;
+  return `${Math.round((hrs / 24) * 10) / 10}d`;
+}
 
 function leadSource(c) {
   const srcRaw = (c.source || c.sourceName || c.appSource || "").toString().trim();
@@ -260,7 +275,7 @@ function buildFunnelDetails(contacts, convos, events) {
 const _now = Date.now();
 const _h = (h) => new Date(_now + h * 3600000).toISOString();
 const _d = (d) => new Date(_now - d * 86400000).toISOString();
-const _bookedAfter = (leadDaysAgo, gapHours) => new Date(_now - leadDaysAgo * 86400000 + gapHours * 3600000).toISOString();
+const _after = (leadDaysAgo, gapHours) => new Date(_now - leadDaysAgo * 86400000 + gapHours * 3600000).toISOString();
 const DEMO = {
   contacts: { contacts: [
     { id: "c1", contactName: "Maria Delgado", phone: "(512) 555-0142", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Spring Rodent Promo" }, dateAdded: _d(0) },
@@ -273,8 +288,8 @@ const DEMO = {
     { id: "c8", contactName: "Marcus Hale", phone: "(512) 555-0144", source: "google", dateAdded: _d(3) },
     { id: "c9", contactName: "Dana Cole", phone: "(512) 555-0155", source: "website form", dateAdded: _d(4) },
     { id: "c10", contactName: "Omar Haddad", phone: "(737) 555-0133", source: "facebook", attributionSource: { medium: "paid", utmCampaign: "Attic Rats Lookalike" }, dateAdded: _d(5) },
-    { id: "c11", contactName: "Grace Lin", phone: "(512) 555-0190", source: "referral", dateAdded: _d(6) },
-    { id: "c12", contactName: "Ethan Pratt", phone: "(512) 555-0101", source: "google", dateAdded: _d(8) },
+    { id: "c11", contactName: "Grace Lin", phone: "(512) 555-0190", source: "referral", dateAdded: _d(6), tags: ["optout"], dateUpdated: _after(6, 30) },
+    { id: "c12", contactName: "Ethan Pratt", phone: "(512) 555-0101", source: "google", dateAdded: _d(8), tags: ["optout"], dateUpdated: _after(8, 60) },
     { id: "c13", contactName: "Carmen Ruiz", phone: "(512) 555-0200", source: "phone", dateAdded: _d(1) },
     { id: "c14", contactName: "Derek Nash", phone: "(737) 555-0211", source: "phone", dateAdded: _d(3) },
   ] },
@@ -294,15 +309,15 @@ const DEMO = {
     { contactName: "Grace Lin", type: "TYPE_SMS", lastMessageBody: "Do you service North Austin?", unreadCount: 1, lastMessageDate: _d(6) },
   ] },
   appointments: { events: [
-    { title: "Inspection · Maria Delgado", contactId: "c1", startTime: _h(20), dateAdded: _bookedAfter(0, 3), appointmentStatus: "new", assignedUserId: "Tech A" },
-    { title: "Treatment · Tyler Brooks", contactId: "c4", startTime: _h(28), dateAdded: _bookedAfter(1, 26), appointmentStatus: "new", assignedUserId: "Tech B" },
-    { title: "Inspection · Priya Nair", contactId: "c3", startTime: _h(46), dateAdded: _bookedAfter(0, 5), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
-    { title: "Re-treat · Omar Haddad", contactId: "c10", startTime: _h(54), dateAdded: _bookedAfter(5, 48), appointmentStatus: "new", assignedUserId: "Tech B" },
-    { title: "Treatment · Dana Cole", contactId: "c9", startTime: _h(72), dateAdded: _bookedAfter(4, 20), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
-    { title: "Inspection · Sofia Russo", contactId: "c5", startTime: _h(96), dateAdded: _bookedAfter(1, 30), appointmentStatus: "confirmed", assignedUserId: "Tech B" },
-    { title: "Treatment · Marcus Hale", contactId: "c8", startTime: _h(-24), dateAdded: _bookedAfter(3, 10), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
-    { title: "Inspection · Aaron Webb", contactId: "c6", startTime: _h(-48), dateAdded: _bookedAfter(2, 15), appointmentStatus: "showed", assignedUserId: "Tech B" },
-    { title: "Consultation · Carmen Ruiz", contactId: "c13", startTime: _h(32), dateAdded: _bookedAfter(1, 8), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
+    { title: "Inspection · Maria Delgado", contactId: "c1", startTime: _h(20), dateAdded: _after(0, 3), appointmentStatus: "new", assignedUserId: "Tech A" },
+    { title: "Treatment · Tyler Brooks", contactId: "c4", startTime: _h(28), dateAdded: _after(1, 26), appointmentStatus: "new", assignedUserId: "Tech B" },
+    { title: "Inspection · Priya Nair", contactId: "c3", startTime: _h(46), dateAdded: _after(0, 5), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
+    { title: "Re-treat · Omar Haddad", contactId: "c10", startTime: _h(54), dateAdded: _after(5, 48), appointmentStatus: "new", assignedUserId: "Tech B" },
+    { title: "Treatment · Dana Cole", contactId: "c9", startTime: _h(72), dateAdded: _after(4, 20), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
+    { title: "Inspection · Sofia Russo", contactId: "c5", startTime: _h(96), dateAdded: _after(1, 30), appointmentStatus: "confirmed", assignedUserId: "Tech B" },
+    { title: "Treatment · Marcus Hale", contactId: "c8", startTime: _h(-24), dateAdded: _after(3, 10), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
+    { title: "Inspection · Aaron Webb", contactId: "c6", startTime: _h(-48), dateAdded: _after(2, 15), appointmentStatus: "showed", assignedUserId: "Tech B" },
+    { title: "Consultation · Carmen Ruiz", contactId: "c13", startTime: _h(32), dateAdded: _after(1, 8), appointmentStatus: "confirmed", assignedUserId: "Tech A" },
   ] },
 };
 
@@ -1057,10 +1072,17 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
   const anchor  = allRows.reduce((mx, r) => r.d > mx ? r.d : mx, "2020-01-01");
 
   function daysBefore(n) {
-    const d = new Date(anchor + "T00:00:00"); d.setDate(d.getDate() - n); return d.toISOString().slice(0,10);
+    const d = new Date(anchor + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0,10);
   }
-  const lo = range === "custom" ? (customFrom || null) : range === "all" ? null : daysBefore(+range);
-  const hi = range === "custom" ? (customTo || null) : null;
+  const lo = range === "custom" ? (customFrom || null)
+    : range === "today" ? anchor
+    : range === "yesterday" ? daysBefore(1)
+    : range === "all" ? null
+    : daysBefore(+range);
+  const hi = range === "custom" ? (customTo || null)
+    : range === "today" ? anchor
+    : range === "yesterday" ? daysBefore(1)
+    : null;
 
   function passBase(r, exceptDim) {
     if (lo && r.d < lo) return false;
@@ -1086,24 +1108,28 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
     const gap = bookedAt.getTime() - leadAt.getTime();
     if (gap >= 0) bookingGapsMs.push(gap);
   });
-  const sortedGaps = [...bookingGapsMs].sort((a, b) => a - b);
-  const medianGapMs = sortedGaps.length
-    ? (sortedGaps.length % 2 ? sortedGaps[(sortedGaps.length - 1) / 2] : (sortedGaps[sortedGaps.length / 2 - 1] + sortedGaps[sortedGaps.length / 2]) / 2)
-    : null;
-  const avgGapMs = sortedGaps.length ? sortedGaps.reduce((a, b) => a + b, 0) / sortedGaps.length : null;
-  function fmtGap(ms) {
-    if (ms == null) return "—";
-    const min = ms / 60000;
-    if (min < 60) return `${Math.round(min)}m`;
-    const hrs = min / 60;
-    if (hrs < 48) return `${Math.round(hrs * 10) / 10}h`;
-    return `${Math.round((hrs / 24) * 10) / 10}d`;
-  }
+  const medianGapMs = median(bookingGapsMs);
+  const avgGapMs = average(bookingGapsMs);
+
   const engCount  = rows.filter(r => r.own || r.prs || r.loc || r.pt || r.rc).length;
   const ownCount  = rows.filter(r => r.own === "yes").length;
   const nqCount   = rows.filter(r => r.nq).length;
   const optCount  = rows.filter(r => r.opt).length;
   const hhCount   = rows.filter(r => r.hh).length;
+
+  // Time from lead created to opt-out, for leads currently in view.
+  // GHL doesn't expose a per-tag timestamp, so dateUpdated is the closest available proxy for when the optout tag landed.
+  const optOutGapsMs = [];
+  contacts.forEach((c, i) => {
+    if (!allRows[i]?.opt || !passBase(allRows[i], null)) return;
+    const leadAt = leadDate(c);
+    const optAt = toDate(c.dateUpdated);
+    if (!leadAt || !optAt) return;
+    const gap = optAt.getTime() - leadAt.getTime();
+    if (gap >= 0) optOutGapsMs.push(gap);
+  });
+  const medianOptGapMs = median(optOutGapsMs);
+  const avgOptGapMs = average(optOutGapsMs);
   const chCounts  = { voice:0, sms:0 };
   rows.filter(r => r.appt).forEach(r => { if (r.ch === "voice") chCounts.voice++; if (r.ch === "sms") chCounts.sms++; });
   const aiShare   = apptCount ? Math.round((chCounts.voice + chCounts.sms) / apptCount * 100) : 0;
@@ -1164,6 +1190,8 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
 
   const fmtLI = (s) => s ? new Date(s + "T00:00:00").toLocaleDateString([], { month:"short", day:"numeric", year:"numeric" }) : "";
   const rangeLabel = range === "all" ? "All time"
+    : range === "today" ? "Today"
+    : range === "yesterday" ? "Yesterday"
     : range === "custom" ? (customFrom || customTo ? `${customFrom ? fmtLI(customFrom) : "Start"} – ${customTo ? fmtLI(customTo) : "Today"}` : "Custom range")
     : `Last ${range} days`;
 
@@ -1227,7 +1255,7 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
         <div style={{ display:"flex", gap:"26px", flexWrap:"wrap", alignItems:"center" }}>
           <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
             <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Period</span>
-            <LISeg options={[["30","30d"],["60","60d"],["90","90d"],["all","All time"],["custom","Custom"]]} value={range} onChange={setRange}/>
+            <LISeg options={[["today","Today"],["yesterday","Yesterday"],["7","7d"],["30","30d"],["60","60d"],["90","90d"],["all","All time"],["custom","Custom"]]} value={range} onChange={setRange}/>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
             <span style={{ fontFamily:MONO, fontSize:"10.5px", letterSpacing:".1em", textTransform:"uppercase", color:LI.soft }}>Source</span>
@@ -1289,6 +1317,22 @@ function LeadIntelligence({ data, onAnalyze, analyzing, analysis, analyzedAt, la
             <div style={{ fontFamily:SERIF, fontWeight:"600", fontSize:"36px", lineHeight:1, marginTop:"11px", letterSpacing:"-.02em", color: bookingGapsMs.length ? col : LI.na }}>{val}</div>
             <div style={{ fontSize:"12px", color:LI.soft, marginTop:"6px" }}>
               {bookingGapsMs.length ? `lead created → appointment booked · ${bookingGapsMs.length} booking${bookingGapsMs.length !== 1 ? "s" : ""} with data` : "no bookings with timing data in view"}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Speed to opt-out */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:"1px", background:LI.line, border:`1px solid ${LI.line}`, borderRadius:"13px", overflow:"hidden", marginTop:"1px" }}>
+        {[
+          { lab:"Median time to opt out",  val:fmtGap(medianOptGapMs), col:LI.clay },
+          { lab:"Average time to opt out", val:fmtGap(avgOptGapMs),    col:LI.clay },
+        ].map(({lab,val,col}) => (
+          <div key={lab} style={{ background:LI.card, padding:"20px" }}>
+            {SH(lab)}
+            <div style={{ fontFamily:SERIF, fontWeight:"600", fontSize:"36px", lineHeight:1, marginTop:"11px", letterSpacing:"-.02em", color: optOutGapsMs.length ? col : LI.na }}>{val}</div>
+            <div style={{ fontSize:"12px", color:LI.soft, marginTop:"6px" }}>
+              {optOutGapsMs.length ? `lead created → opted out · ${optOutGapsMs.length} opt-out${optOutGapsMs.length !== 1 ? "s" : ""} with data` : "no opt-outs with timing data in view"}
             </div>
           </div>
         ))}
