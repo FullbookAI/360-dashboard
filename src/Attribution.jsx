@@ -240,13 +240,16 @@ export default function Attribution() {
   // committed — so they're derived against today each time the view renders.
   const model = useMemo(() => {
     const nowMonth = new Date().toISOString().slice(0, 7);
+    const flag = list => list.map(m => ({
+      ...m,
+      future:  m.month > nowMonth,
+      partial: m.month === nowMonth,
+    }));
     return {
       ...agg,
-      monthly: agg.monthly.map(m => ({
-        ...m,
-        future:  m.month > nowMonth,
-        partial: m.month === nowMonth,
-      })),
+      scopes: Object.fromEntries(
+        Object.entries(agg.scopes).map(([key, s]) => [key, { ...s, monthly: flag(s.monthly) }])
+      ),
     };
   }, []);
   const checks = useMemo(() => selfCheck(model), [model]);
