@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { LI, SERIF, MONO } from "./theme.js";
-import { selfCheck } from "./attribution.js";
+import { selfCheck, FILTERABILITY } from "./attribution.js";
 // Counts only — generated from the local CSV exports by `npm run data`.
 // The raw exports hold customer names and phone numbers and are gitignored;
 // see scripts/build-aggregates.mjs for the PII boundary.
@@ -50,6 +50,17 @@ const Tag = ({ children, tone = "soft" }) => {
       background:tones.bg, color:tones.fg, borderRadius:"5px", padding:"3px 7px", whiteSpace:"nowrap" }}>{children}</span>
   );
 };
+
+/** Marks a panel that cannot follow the global controls, and says why.
+ *  Without this, an unfilterable panel under a "2026 only" filter reads as
+ *  filtered data — which is exactly how all-time figures get misquoted. */
+const NotFiltered = ({ why }) => (
+  <div style={{ display:"flex", gap:"9px", alignItems:"flex-start", background:"#FBF7EF",
+    border:"1px solid #EADFCB", borderRadius:"8px", padding:"9px 12px", marginBottom:"15px" }}>
+    <span style={{ flexShrink:0, marginTop:"1px" }}><Tag tone="warn">all time</Tag></span>
+    <span style={{ fontSize:"12.5px", color:"#7A5A28", lineHeight:"1.55" }}>{why}</span>
+  </div>
+);
 
 /** Floating tooltip anchored to the cursor. */
 const Tip = ({ tip }) => tip ? (
@@ -105,10 +116,10 @@ function BarRows({ data, total, valueFmt, onTip }) {
 
 /** Monthly column chart. Months at or past today are hatched, because
  *  "Scheduled (first job)" is a booking date — those months are still filling. */
-function MonthlyBars({ monthly, onTip }) {
+function MonthlyBars({ monthly, onTip, measureWord }) {
   if (!monthly.length) return <div style={{ color:LI.na, padding:"30px", textAlign:"center" }}>No dated AI leads.</div>;
   const W = 720, H = 240, PL = 34, PR = 12, PT = 18, PB = 34;
-  const max = Math.max(...monthly.map(m => m.count));
+  const max = Math.max(...monthly.map(m => m.value), 1);
   const step = Math.ceil(max / 4 / 10) * 10 || 1;
   const ticks = []; for (let v = 0; v <= max; v += step) ticks.push(v);
   const plotW = W - PL - PR, plotH = H - PT - PB;
@@ -137,18 +148,18 @@ function MonthlyBars({ monthly, onTip }) {
         </g>
       ))}
       {monthly.map((m, i) => {
-        const h = Math.max(plotH - (y(m.count) - PT), 2);
+        const h = Math.max(plotH - (y(m.value) - PT), m.value ? 2 : 0);
         const soon = m.future || m.partial;
         return (
           <g key={m.month}
             onMouseMove={e => onTip({ x:e.clientX, y:e.clientY, title:monthLabel(m.month),
-              lines:[`${m.count} AI-attributed customers`, soon ? "Still filling — booking date is in the future" : null].filter(Boolean) })}
+              lines:[`${m.value} ${measureWord}`, soon ? "Still filling — booking date is in the future" : null].filter(Boolean) })}
             onMouseLeave={() => onTip(null)}>
             <rect x={x(i) - bw / 2 - 4} y={PT} width={bw + 8} height={plotH} fill="transparent" />
-            <rect x={x(i) - bw / 2} y={y(m.count)} width={bw} height={h} rx="4"
+            <rect x={x(i) - bw / 2} y={y(m.value)} width={bw} height={h} rx="4"
               fill={soon ? "url(#futureHatch)" : LI.signalD} />
-            {i % valueStride === 0 && (
-              <text x={x(i)} y={y(m.count) - 7} textAnchor="middle" fontFamily={SERIF} fontWeight="600" fontSize="13" fill={LI.ink}>{m.count}</text>
+            {i % valueStride === 0 && m.value > 0 && (
+              <text x={x(i)} y={y(m.value) - 7} textAnchor="middle" fontFamily={SERIF} fontWeight="600" fontSize="13" fill={LI.ink}>{m.value}</text>
             )}
             {i % labelStride === 0 && (
               <text x={x(i)} y={H - 12} textAnchor="middle" fontFamily={MONO} fontSize="10.5" fill={LI.soft}>{monthLabel(m.month)}</text>
@@ -244,15 +255,27 @@ export default function Attribution() {
   const [asTable, setAsTable] = useState(false);
   const [tip, setTip] = useState(null);
 
-  const t = model.totals;
-  const tiers = scope === "2026" ? model.tiers2026 : model.tiersAll;
-  const scopeTotalCustomers = tiers.reduce((a, r) => a + r.customers, 0);
-  const scopeTotalJobs      = tiers.reduce((a, r) => a + r.jobs, 0);
-  const scopeTotal = metric === "customers" ? scopeTotalCustomers : scopeTotalJobs;
+  // Everything below reads from the selected period's rollup, and `mv` picks the
+  // selected measure. Both controls therefore drive every panel that declares
+  // itself filterable in FILTERABILITY — no panel silently ignores them.
+  const S  = model.scopes[scope];
+  const t  = S.totals;
+  const meta = model.meta;
+  const mv = o => metric === "customers" ? o.customers : o.jobs;
+  const measureWord = metric === "customers" ? "customers" : "jobs";
 
+  const tiers = S.tiers;
+  const scopeTotal = tiers.reduce((a, r) => a + mv(r), 0);
   const tierData = tiers
-    .map(r => ({ label:r.label, value:metric === "customers" ? r.customers : r.jobs, color:r.color }))
+    .map(r => ({ label:r.label, value:mv(r), color:r.color }))
     .sort((a, b) => b.value - a.value);
+
+  const monthlyData = S.monthly.map(m => ({ ...m, value: mv(m) }));
+
+  const mixData  = S.jobMix
+    .map(m => ({ label:m.cat, value:mv(m), color:LI.signalD }))
+    .sort((a, b) => b.value - a.value);
+  const mixTotal = S.jobMix.reduce((a, m) => a + mv(m), 0);
 
   const failing = checks.filter(c => !c.ok);
   const fbRate = model.fb.tagged ? model.fb.converted / model.fb.tagged : 0;
@@ -260,19 +283,17 @@ export default function Attribution() {
   // Averages must follow the selected period. Quoting the all-time lift while
   // telling the reader that 2026 is the fair comparison would overstate it:
   // all-time reads 4.67 vs 3.62 (+29%), but like-for-like 2026 is 4.58 vs 3.97 (+15%).
-  const aiTier   = tiers.find(r => r.key === "AI LEAD")    || { avgJobs:0, customers:0, jobs:0 };
-  const baseTier = tiers.find(r => r.key === "NOT IN GHL") || { avgJobs:0 };
-  const aiAvg   = aiTier.avgJobs;
-  const baseAvg = baseTier.avgJobs;
+  const aiAvg   = t.aiAvgJobs;
+  const baseAvg = t.baseAvgJobs;
   const aiLift  = baseAvg ? (aiAvg / baseAvg - 1) : 0;
   const scopeLabel = scope === "2026" ? "In 2026" : "Across all HCP history";
 
   const kpis = [
-    { lab:"HCP customers", val:n(scope === "2026" ? t.customers26 : t.customers),
-      sub:scope === "2026" ? "first job in 2026" : `first job ${t.dateMin.slice(0,4)}–${t.dateMax.slice(0,4)}`, col:LI.ink },
-    { lab:"AI-attributed", val:n(scope === "2026" ? t.aiCustomers26 : t.aiCustomers),
-      sub:`${pct(scope === "2026" ? t.aiCustomers26 : t.aiCustomers, scope === "2026" ? t.customers26 : t.customers)}% of customers`, col:LI.signalD },
-    { lab:"Jobs from AI leads", val:n(scope === "2026" ? t.aiJobs26 : t.aiJobs),
+    { lab:"HCP customers", val:n(t.customers),
+      sub:scope === "2026" ? "first job in 2026" : `first job ${meta.dateMin.slice(0,4)}–${meta.dateMax.slice(0,4)}`, col:LI.ink },
+    { lab:"AI-attributed", val:n(t.aiCustomers),
+      sub:`${pct(t.aiCustomers, t.customers)}% of customers`, col:LI.signalD },
+    { lab:"Jobs from AI leads", val:n(t.aiJobs),
       sub:"total jobs, not first jobs", col:LI.signalD },
     { lab:"Jobs per AI customer", val:aiAvg.toFixed(2),
       sub:`vs ${baseAvg.toFixed(2)} for untracked`, col:aiLift > 0 ? LI.signalD : LI.clay },
@@ -291,9 +312,12 @@ export default function Attribution() {
         </div>
         <div style={{ textAlign:"right" }}>
           <div style={{ fontFamily:MONO, fontSize:"12px", color:LI.ever }}>
-            <b style={{ fontSize:"15px" }}>{n(t.customers)}</b> HCP CUSTOMERS · <b style={{ fontSize:"15px" }}>{n(model.fb.tagged)}</b> FB-TAGGED
+            SHOWING <b style={{ fontSize:"15px", color:LI.signalD }}>{n(t.customers)}</b> OF {n(model.scopes.all.totals.customers)} HCP CUSTOMERS
           </div>
-          <div style={{ fontFamily:MONO, fontSize:"10.5px", color:LI.na, marginTop:"4px" }}>
+          <div style={{ fontFamily:MONO, fontSize:"10.5px", color:LI.soft, marginTop:"3px" }}>
+            {scope === "2026" ? "2026 only" : "all time"} · counting {measureWord}
+          </div>
+          <div style={{ fontFamily:MONO, fontSize:"10.5px", color:LI.na, marginTop:"3px" }}>
             STATIC EXPORT · NOT LIVE
           </div>
         </div>
@@ -302,7 +326,7 @@ export default function Attribution() {
       {/* provenance */}
       <div style={{ display:"flex", gap:"8px", flexWrap:"wrap", alignItems:"center", padding:"14px 0" }}>
         <Tag>source: 360 Attribution Scan (Google Sheets)</Tag>
-        <Tag>{`first jobs ${t.dateMin.slice(0,10)} → ${t.dateMax.slice(0,10)}`}</Tag>
+        <Tag>{`first jobs ${meta.dateMin.slice(0,10)} → ${meta.dateMax.slice(0,10)}`}</Tag>
         <Tag tone={failing.length ? "bad" : "good"}>
           {failing.length ? `${failing.length} pivot check${failing.length > 1 ? "s" : ""} failing` : "matches sheet pivots"}
         </Tag>
@@ -341,14 +365,13 @@ export default function Attribution() {
         <div style={{ fontFamily:MONO, fontSize:"10px", letterSpacing:".1em", textTransform:"uppercase", color:LI.signalD, marginBottom:"7px" }}>What the data says</div>
         <p style={{ margin:"0 0 9px", fontSize:"14.5px", lineHeight:"1.6", color:LI.ink, maxWidth:"80ch" }}>
           {scopeLabel}, AI-attributed customers book <b>{aiAvg.toFixed(2)} jobs each</b> versus <b>{baseAvg.toFixed(2)}</b> for customers with no GHL record
-          {aiLift > 0 ? <> — <b>{Math.round(aiLift * 100)}% more repeat work per customer</b>.</> : "."} They account for {pct(
-            scope === "2026" ? t.aiCustomers26 : t.aiCustomers,
-            scope === "2026" ? t.customers26 : t.customers
-          )}% of {scope === "2026" ? "all new HCP customers this year" : "every HCP customer on record"}.
+          {aiLift > 0 ? <> — <b>{Math.round(aiLift * 100)}% more repeat work per customer</b>.</> : "."} They account
+          for {pct(t.aiCustomers, t.customers)}% of {scope === "2026" ? "all new HCP customers this year" : "every HCP customer on record"}.
         </p>
         <p style={{ margin:0, fontSize:"14.5px", lineHeight:"1.6", color:LI.ink, maxWidth:"80ch" }}>
           The Facebook lead form is the weak link: <b>{n(model.fb.tagged)} contacts</b> carry the tag,
           but only <b>{n(model.fb.withJobs)}</b> ever appear as a paying HCP job — a <b>{(fbRate * 100).toFixed(1)}% conversion rate</b>.
+          <span style={{ color:LI.soft }}> (All-time — the tag report carries no dates, so this figure ignores the period filter.)</span>
         </p>
       </div>
 
@@ -359,12 +382,12 @@ export default function Attribution() {
         right={<span style={{ fontFamily:MONO, fontSize:"11px", color:LI.na }}>{n(scopeTotal)} total</span>}
       >
         {asTable
-          ? <Table cols={["Tier","Customers","Jobs","Jobs per customer","Share of customers"]}
-              rows={tiers.map(r => [r.label, n(r.customers), n(r.jobs), r.avgJobs.toFixed(2), `${pct(r.customers, scopeTotalCustomers)}%`])} />
+          ? <Table cols={["Tier","Customers","Jobs","Jobs per customer",`Share of ${measureWord}`]}
+              rows={tiers.map(r => [r.label, n(r.customers), n(r.jobs), r.avgJobs.toFixed(2), `${pct(mv(r), scopeTotal)}%`])} />
           : <BarRows data={tierData} total={scopeTotal} valueFmt={n} onTip={setTip} />}
         {scope === "all" && (
           <p style={{ fontSize:"12.5px", color:LI.soft, marginTop:"14px", lineHeight:"1.55", fontStyle:"italic" }}>
-            All-time understates the AI badly — Housecall Pro history runs back to {t.dateMin.slice(0, 4)}, years before any GHL tracking existed.
+            All-time understates the AI badly — Housecall Pro history runs back to {meta.dateMin.slice(0, 4)}, years before any GHL tracking existed.
             Switch to 2026 for a like-for-like comparison.
           </p>
         )}
@@ -372,14 +395,15 @@ export default function Attribution() {
 
       {/* monthly trend */}
       <Panel
-        title="AI-attributed customers by month"
-        note='Counted by the month of the customer&apos;s first scheduled job. Hatched columns are at or beyond today — "Scheduled (first job)" is a booking date, so those months are still filling and should not be read as a decline.'
+        title={`AI-attributed ${measureWord} by month`}
+        note={`Counted by the month of the customer's first scheduled job${scope === "all" ? ", back to the earliest record" : ", within 2026"}. Months with no AI leads are shown as gaps rather than skipped, so the spacing stays honest. Hatched columns are at or beyond today — "Scheduled (first job)" is a booking date, so those months are still filling and should not be read as a decline.`}
+        right={<span style={{ fontFamily:MONO, fontSize:"11px", color:LI.na }}>{n(monthlyData.reduce((a, m) => a + m.value, 0))} total</span>}
       >
         {asTable
-          ? <Table cols={["Month","AI-attributed customers","Status"]}
-              rows={model.monthly.map(m => [monthLabel(m.month), n(m.count), m.future ? "future bookings" : m.partial ? "current month, partial" : "complete"])} />
+          ? <Table cols={["Month", metric === "customers" ? "AI-attributed customers" : "Jobs from AI leads", "Status"]}
+              rows={monthlyData.map(m => [monthLabel(m.month), n(m.value), m.future ? "future bookings" : m.partial ? "current month, partial" : "complete"])} />
           : <>
-              <MonthlyBars monthly={model.monthly} onTip={setTip} />
+              <MonthlyBars monthly={monthlyData} onTip={setTip} measureWord={metric === "customers" ? "AI-attributed customers" : "jobs from AI leads"} />
               <div style={{ display:"flex", gap:"18px", marginTop:"12px", fontSize:"12.5px", color:LI.soft, flexWrap:"wrap" }}>
                 <span style={{ display:"flex", alignItems:"center", gap:"7px" }}>
                   <span style={{ width:"11px", height:"11px", borderRadius:"2px", background:LI.signalD }} /> Complete months
@@ -394,13 +418,13 @@ export default function Attribution() {
       {/* job mix */}
       <Panel
         title="What AI leads actually book"
-        note={`First job description for each AI-attributed customer, normalised into buckets. Covers all ${n(t.aiCustomers)} AI leads regardless of the period selected above, so it reproduces the job-type pivot in the source workbook exactly.`}
+        note={`First job description for each AI-attributed customer, normalised into buckets. Showing ${measureWord} for ${scope === "2026" ? "2026" : "all time"}.`}
+        right={<span style={{ fontFamily:MONO, fontSize:"11px", color:LI.na }}>{n(mixTotal)} total</span>}
       >
         {asTable
-          ? <Table cols={["Job type","Customers","Share"]}
-              rows={model.jobMix.map(m => [m.cat, n(m.count), `${pct(m.count, t.aiCustomers)}%`])} />
-          : <BarRows data={model.jobMix.map(m => ({ label:m.cat, value:m.count, color:LI.signalD }))}
-              total={t.aiCustomers} valueFmt={n} onTip={setTip} />}
+          ? <Table cols={["Job type","Customers","Jobs",`Share of ${measureWord}`]}
+              rows={S.jobMix.map(m => [m.cat, n(m.customers), n(m.jobs), `${pct(mv(m), mixTotal)}%`])} />
+          : <BarRows data={mixData} total={mixTotal} valueFmt={n} onTip={setTip} />}
       </Panel>
 
       {/* facebook funnel */}
@@ -408,6 +432,7 @@ export default function Attribution() {
         title="Facebook lead form → paying job"
         note="Every GHL contact carrying the Facebook lead-form tag, followed through to Housecall Pro. Each step is a strict subset of the one above it."
       >
+        <NotFiltered why={FILTERABILITY.facebook.why} />
         {asTable
           ? <Table cols={["Step","Contacts","Share of tagged"]}
               rows={model.fbFunnel.map(s => [s.step, n(s.value), `${pct(s.value, model.fb.tagged)}%`])} />
@@ -424,6 +449,7 @@ export default function Attribution() {
         title="Before you quote these numbers"
         note="Caveats that materially change how the figures above should be read."
       >
+        <NotFiltered why={FILTERABILITY.quality.why} />
         {model.quality.map((q, i) => (
           <div key={i} style={{ display:"flex", gap:"11px", alignItems:"flex-start", padding:"11px 0", borderBottom: i < model.quality.length - 1 ? `1px solid ${LI.line}` : "none" }}>
             <span style={{ marginTop:"1px" }}><Tag tone={q.level === "warn" ? "warn" : "soft"}>{q.level === "warn" ? "caution" : "note"}</Tag></span>
@@ -437,6 +463,7 @@ export default function Attribution() {
         title="Cross-check against the source workbook"
         note="The same Google Sheet ships two summary pivots. This dashboard re-derives those numbers from the raw rows and compares. A mismatch means the export changed and something here needs revisiting."
       >
+        <NotFiltered why={FILTERABILITY.pivots.why} />
         <Table
           cols={["Check","This dashboard","Sheet pivot",""]}
           rows={checks.map(c => [c.label, n(c.ours), n(c.theirs), c.ok ? "match" : "MISMATCH"])}

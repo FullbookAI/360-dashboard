@@ -1,110 +1,436 @@
 {
-  "totals": {
-    "customers": 3165,
-    "jobs": 11769,
-    "customers26": 1003,
-    "jobs26": 4112,
-    "aiCustomers": 388,
-    "aiJobs": 1812,
-    "aiCustomers26": 380,
-    "aiJobs26": 1739,
-    "aiShareAll": 0.1225908372827804,
-    "aiShare26": 0.37886340977068794,
-    "aiAvgJobs": 4.670103092783505,
-    "baseAvgJobs": 3.6220270764727407,
+  "scopes": {
+    "2026": {
+      "tiers": [
+        {
+          "key": "AI LEAD",
+          "label": "AI lead",
+          "color": "#2A8C63",
+          "customers": 380,
+          "jobs": 1739,
+          "avgJobs": 4.576315789473684
+        },
+        {
+          "key": "NOT IN GHL",
+          "label": "Not in GHL",
+          "color": "#3B6FA8",
+          "customers": 585,
+          "jobs": 2321,
+          "avgJobs": 3.9675213675213676
+        },
+        {
+          "key": "NO PHONE",
+          "label": "No phone on file",
+          "color": "#BE6B1E",
+          "customers": 37,
+          "jobs": 37,
+          "avgJobs": 1
+        },
+        {
+          "key": "IN GHL (no AI tag)",
+          "label": "In GHL, no AI tag",
+          "color": "#A04E7C",
+          "customers": 1,
+          "jobs": 15,
+          "avgJobs": 15
+        }
+      ],
+      "monthly": [
+        {
+          "month": "2026-01",
+          "customers": 40,
+          "jobs": 168
+        },
+        {
+          "month": "2026-02",
+          "customers": 25,
+          "jobs": 119
+        },
+        {
+          "month": "2026-03",
+          "customers": 22,
+          "jobs": 125
+        },
+        {
+          "month": "2026-04",
+          "customers": 17,
+          "jobs": 86
+        },
+        {
+          "month": "2026-05",
+          "customers": 28,
+          "jobs": 73
+        },
+        {
+          "month": "2026-06",
+          "customers": 61,
+          "jobs": 252
+        },
+        {
+          "month": "2026-07",
+          "customers": 120,
+          "jobs": 570
+        },
+        {
+          "month": "2026-08",
+          "customers": 66,
+          "jobs": 341
+        },
+        {
+          "month": "2026-09",
+          "customers": 1,
+          "jobs": 5
+        }
+      ],
+      "jobMix": [
+        {
+          "cat": "Checkup/Follow-up",
+          "customers": 211,
+          "jobs": 1266
+        },
+        {
+          "cat": "Treatment",
+          "customers": 63,
+          "jobs": 83
+        },
+        {
+          "cat": "Inspection",
+          "customers": 54,
+          "jobs": 68
+        },
+        {
+          "cat": "Other",
+          "customers": 5,
+          "jobs": 29
+        },
+        {
+          "cat": "(no description)",
+          "customers": 47,
+          "jobs": 293
+        }
+      ],
+      "totals": {
+        "customers": 1003,
+        "jobs": 4112,
+        "aiCustomers": 380,
+        "aiJobs": 1739,
+        "aiAvgJobs": 4.576315789473684,
+        "baseAvgJobs": 3.9675213675213676
+      }
+    },
+    "all": {
+      "tiers": [
+        {
+          "key": "AI LEAD",
+          "label": "AI lead",
+          "color": "#2A8C63",
+          "customers": 388,
+          "jobs": 1812,
+          "avgJobs": 4.670103092783505
+        },
+        {
+          "key": "NOT IN GHL",
+          "label": "Not in GHL",
+          "color": "#3B6FA8",
+          "customers": 2733,
+          "jobs": 9899,
+          "avgJobs": 3.6220270764727407
+        },
+        {
+          "key": "NO PHONE",
+          "label": "No phone on file",
+          "color": "#BE6B1E",
+          "customers": 43,
+          "jobs": 43,
+          "avgJobs": 1
+        },
+        {
+          "key": "IN GHL (no AI tag)",
+          "label": "In GHL, no AI tag",
+          "color": "#A04E7C",
+          "customers": 1,
+          "jobs": 15,
+          "avgJobs": 15
+        }
+      ],
+      "monthly": [
+        {
+          "month": "2022-11",
+          "customers": 1,
+          "jobs": 5
+        },
+        {
+          "month": "2022-12",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-01",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-02",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-03",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-04",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-05",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-06",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-07",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-08",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-09",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-10",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-11",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2023-12",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-01",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-02",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-03",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-04",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-05",
+          "customers": 1,
+          "jobs": 24
+        },
+        {
+          "month": "2024-06",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-07",
+          "customers": 1,
+          "jobs": 4
+        },
+        {
+          "month": "2024-08",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-09",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-10",
+          "customers": 2,
+          "jobs": 5
+        },
+        {
+          "month": "2024-11",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2024-12",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-01",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-02",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-03",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-04",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-05",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-06",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-07",
+          "customers": 1,
+          "jobs": 8
+        },
+        {
+          "month": "2025-08",
+          "customers": 2,
+          "jobs": 27
+        },
+        {
+          "month": "2025-09",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-10",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-11",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2025-12",
+          "customers": 0,
+          "jobs": 0
+        },
+        {
+          "month": "2026-01",
+          "customers": 40,
+          "jobs": 168
+        },
+        {
+          "month": "2026-02",
+          "customers": 25,
+          "jobs": 119
+        },
+        {
+          "month": "2026-03",
+          "customers": 22,
+          "jobs": 125
+        },
+        {
+          "month": "2026-04",
+          "customers": 17,
+          "jobs": 86
+        },
+        {
+          "month": "2026-05",
+          "customers": 28,
+          "jobs": 73
+        },
+        {
+          "month": "2026-06",
+          "customers": 61,
+          "jobs": 252
+        },
+        {
+          "month": "2026-07",
+          "customers": 120,
+          "jobs": 570
+        },
+        {
+          "month": "2026-08",
+          "customers": 66,
+          "jobs": 341
+        },
+        {
+          "month": "2026-09",
+          "customers": 1,
+          "jobs": 5
+        }
+      ],
+      "jobMix": [
+        {
+          "cat": "Checkup/Follow-up",
+          "customers": 216,
+          "jobs": 1329
+        },
+        {
+          "cat": "Treatment",
+          "customers": 63,
+          "jobs": 83
+        },
+        {
+          "cat": "Inspection",
+          "customers": 56,
+          "jobs": 74
+        },
+        {
+          "cat": "Other",
+          "customers": 5,
+          "jobs": 29
+        },
+        {
+          "cat": "(no description)",
+          "customers": 48,
+          "jobs": 297
+        }
+      ],
+      "totals": {
+        "customers": 3165,
+        "jobs": 11769,
+        "aiCustomers": 388,
+        "aiJobs": 1812,
+        "aiAvgJobs": 4.670103092783505,
+        "baseAvgJobs": 3.6220270764727407
+      }
+    }
+  },
+  "meta": {
     "dateMin": "2022-10-16T15:00:00Z",
     "dateMax": "2026-09-25T17:30:00Z"
   },
-  "tiersAll": [
-    {
-      "key": "AI LEAD",
-      "label": "AI lead",
-      "color": "#2A8C63",
-      "customers": 388,
-      "jobs": 1812,
-      "avgJobs": 4.670103092783505
-    },
-    {
-      "key": "NOT IN GHL",
-      "label": "Not in GHL",
-      "color": "#3B6FA8",
-      "customers": 2733,
-      "jobs": 9899,
-      "avgJobs": 3.6220270764727407
-    },
-    {
-      "key": "NO PHONE",
-      "label": "No phone on file",
-      "color": "#BE6B1E",
-      "customers": 43,
-      "jobs": 43,
-      "avgJobs": 1
-    },
-    {
-      "key": "IN GHL (no AI tag)",
-      "label": "In GHL, no AI tag",
-      "color": "#A04E7C",
-      "customers": 1,
-      "jobs": 15,
-      "avgJobs": 15
-    }
-  ],
-  "tiers2026": [
-    {
-      "key": "AI LEAD",
-      "label": "AI lead",
-      "color": "#2A8C63",
-      "customers": 380,
-      "jobs": 1739,
-      "avgJobs": 4.576315789473684
-    },
-    {
-      "key": "NOT IN GHL",
-      "label": "Not in GHL",
-      "color": "#3B6FA8",
-      "customers": 585,
-      "jobs": 2321,
-      "avgJobs": 3.9675213675213676
-    },
-    {
-      "key": "NO PHONE",
-      "label": "No phone on file",
-      "color": "#BE6B1E",
-      "customers": 37,
-      "jobs": 37,
-      "avgJobs": 1
-    },
-    {
-      "key": "IN GHL (no AI tag)",
-      "label": "In GHL, no AI tag",
-      "color": "#A04E7C",
-      "customers": 1,
-      "jobs": 15,
-      "avgJobs": 15
-    }
-  ],
-  "jobMix": [
-    {
-      "cat": "Checkup/Follow-up",
-      "count": 216
-    },
-    {
-      "cat": "Treatment",
-      "count": 63
-    },
-    {
-      "cat": "Inspection",
-      "count": 56
-    },
-    {
-      "cat": "(no description)",
-      "count": 48
-    },
-    {
-      "cat": "Other",
-      "count": 5
-    }
-  ],
   "fbFunnel": [
     {
       "step": "Tagged as Facebook lead in GHL",
@@ -153,48 +479,10 @@
     },
     {
       "level": "info",
-      "text": "8 AI-tagged customers have a first job dated before 2026 (as far back as 2022). These are almost certainly existing customers who were later tagged in GHL, not leads the AI generated. They are excluded from the monthly trend but included in totals."
+      "text": "8 AI-tagged customers have a first job dated before 2026 (as far back as 2022). These are almost certainly existing customers who were later tagged in GHL, not leads the AI generated. On \"All time\" they appear in the trend; on \"2026 only\" they are excluded."
     }
   ],
-  "monthly": [
-    {
-      "month": "2026-01",
-      "count": 40
-    },
-    {
-      "month": "2026-02",
-      "count": 25
-    },
-    {
-      "month": "2026-03",
-      "count": 22
-    },
-    {
-      "month": "2026-04",
-      "count": 17
-    },
-    {
-      "month": "2026-05",
-      "count": 28
-    },
-    {
-      "month": "2026-06",
-      "count": 61
-    },
-    {
-      "month": "2026-07",
-      "count": 120
-    },
-    {
-      "month": "2026-08",
-      "count": 66
-    },
-    {
-      "month": "2026-09",
-      "count": 1
-    }
-  ],
-  "generatedAt": "2026-08-04T13:39:47.473Z",
+  "generatedAt": "2026-08-04T13:59:53.925Z",
   "sourceRows": {
     "scan": 3165,
     "tag": 357

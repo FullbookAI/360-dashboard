@@ -97,48 +97,76 @@ export function buildAttribution(scanText, tagText, now = new Date()) {
 
   const nowISO = now.toISOString();
 
-  // ── Tier rollup, all time and 2026-only ────────────────────────────────────
-  const rollup = (rows) => TIERS.map(t => {
+  // ── Per-period rollups ─────────────────────────────────────────────────────
+  // Every breakdown is computed once per period AND carries both measures
+  // (customers and jobs), so the Period and Count controls can drive all of
+  // them rather than just the tier chart. Anything that genuinely cannot follow
+  // a control is declared in FILTERABILITY below and says so in the UI.
+  const scan2026 = scan.filter(r => r.year === "2026");
+
+  const rollupTiers = (rows) => TIERS.map(t => {
     const sub = rows.filter(r => r.tier === t.key);
     const jobs = sub.reduce((a, r) => a + r.jobs, 0);
-    return {
-      ...t,
-      customers: sub.length,
-      jobs,
-      avgJobs: sub.length ? jobs / sub.length : 0,
-    };
+    return { ...t, customers: sub.length, jobs, avgJobs: sub.length ? jobs / sub.length : 0 };
   }).filter(t => t.customers > 0);
 
-  const scan2026 = scan.filter(r => r.year === "2026");
-  const tiersAll  = rollup(scan);
-  const tiers2026 = rollup(scan2026);
+  // A time series with missing months must not render them as adjacent bars —
+  // that silently compresses gaps and distorts the trend. Fill the run.
+  const fillMonths = (list) => {
+    if (!list.length) return list;
+    const byKey = Object.fromEntries(list.map(x => [x.month, x]));
+    const out = [];
+    let [y, m] = list[0].month.split("-").map(Number);
+    const [yEnd, mEnd] = list[list.length - 1].month.split("-").map(Number);
+    while (y < yEnd || (y === yEnd && m <= mEnd)) {
+      const key = `${y}-${String(m).padStart(2, "0")}`;
+      out.push(byKey[key] || { month: key, customers: 0, jobs: 0 });
+      if (m === 12) { m = 1; y++; } else m++;
+    }
+    return out;
+  };
 
-  const sum = (a, k) => a.reduce((x, r) => x + r[k], 0);
-  const aiAll  = tiersAll.find(t => t.key === "AI LEAD")  || { customers: 0, jobs: 0, avgJobs: 0 };
-  const ai2026 = tiers2026.find(t => t.key === "AI LEAD") || { customers: 0, jobs: 0, avgJobs: 0 };
-
-  // ── AI-lead trend by month of first job ────────────────────────────────────
   // "Scheduled (first job)" is a SCHEDULING date, so it runs into the future.
   // Months past today are still filling and must not be read as a decline.
-  const aiRows = scan.filter(r => r.tier === "AI LEAD" && r.month);
-  const byMonth = {};
-  aiRows.forEach(r => { byMonth[r.month] = (byMonth[r.month] || 0) + 1; });
-  const nowMonth = nowISO.slice(0, 7);
-  const monthly = Object.keys(byMonth).sort()
-    .filter(m => m >= "2026-01")            // pre-2026 AI leads are a handful of strays
-    .map(m => ({ month: m, count: byMonth[m], future: m > nowMonth, partial: m === nowMonth }));
-  const strays = aiRows.filter(r => r.month < "2026-01").length;
+  const rollupMonthly = (rows) => {
+    const by = {};
+    rows.filter(r => r.tier === "AI LEAD" && r.month).forEach(r => {
+      const b = by[r.month] || (by[r.month] = { month: r.month, customers: 0, jobs: 0 });
+      b.customers++; b.jobs += r.jobs;
+    });
+    return fillMonths(Object.values(by).sort((a, b) => a.month.localeCompare(b.month)));
+  };
 
-  // ── Job-type mix for AI leads (customers, by their first job) ──────────────
-  const mixCount = {};
-  aiRows.forEach(r => { mixCount[r.category] = (mixCount[r.category] || 0) + 1; });
-  // Also count strays' categories so the mix sums to the full AI-lead total.
-  scan.filter(r => r.tier === "AI LEAD" && !r.month)
-      .forEach(r => { mixCount[r.category] = (mixCount[r.category] || 0) + 1; });
-  const jobMix = JOB_CATS
-    .map(c => ({ cat: c, count: mixCount[c] || 0 }))
-    .filter(c => c.count > 0)
-    .sort((a, b) => b.count - a.count);
+  const rollupMix = (rows) => {
+    const by = {};
+    rows.filter(r => r.tier === "AI LEAD").forEach(r => {
+      const b = by[r.category] || (by[r.category] = { cat: r.category, customers: 0, jobs: 0 });
+      b.customers++; b.jobs += r.jobs;
+    });
+    return JOB_CATS.map(c => by[c]).filter(Boolean);
+  };
+
+  const buildScope = (rows) => {
+    const tiers = rollupTiers(rows);
+    const ai   = tiers.find(t => t.key === "AI LEAD")    || { customers:0, jobs:0, avgJobs:0 };
+    const base = tiers.find(t => t.key === "NOT IN GHL") || { customers:0, jobs:0, avgJobs:0 };
+    return {
+      tiers,
+      monthly: rollupMonthly(rows),
+      jobMix:  rollupMix(rows),
+      totals: {
+        customers:   rows.length,
+        jobs:        rows.reduce((a, r) => a + r.jobs, 0),
+        aiCustomers: ai.customers,
+        aiJobs:      ai.jobs,
+        aiAvgJobs:   ai.avgJobs,
+        baseAvgJobs: base.avgJobs,
+      },
+    };
+  };
+
+  const scopes = { all: buildScope(scan), "2026": buildScope(scan2026) };
+  const strays = scan.filter(r => r.tier === "AI LEAD" && r.month && r.month < "2026-01").length;
 
   // ── Facebook lead-form funnel ──────────────────────────────────────────────
   // tag_report = every GHL contact carrying the Facebook lead-form tag.
@@ -187,35 +215,41 @@ export function buildAttribution(scanText, tagText, now = new Date()) {
   });
   if (strays) quality.push({
     level: "info",
-    text: `${strays} AI-tagged customers have a first job dated before 2026 (as far back as 2022). These are almost certainly existing customers who were later tagged in GHL, not leads the AI generated. They are excluded from the monthly trend but included in totals.`,
+    text: `${strays} AI-tagged customers have a first job dated before 2026 (as far back as 2022). These are almost certainly existing customers who were later tagged in GHL, not leads the AI generated. On "All time" they appear in the trend; on "2026 only" they are excluded.`,
   });
+
+  const dates = scan.map(r => r.scheduled).filter(Boolean).sort();
 
   return {
     scan, tag, nowISO,
-    totals: {
-      customers:   scan.length,
-      jobs:        sum(tiersAll, "jobs"),
-      customers26: scan2026.length,
-      jobs26:      sum(tiers2026, "jobs"),
-      aiCustomers: aiAll.customers,
-      aiJobs:      aiAll.jobs,
-      aiCustomers26: ai2026.customers,
-      aiJobs26:      ai2026.jobs,
-      aiShareAll:  scan.length ? aiAll.customers / scan.length : 0,
-      aiShare26:   scan2026.length ? ai2026.customers / scan2026.length : 0,
-      aiAvgJobs:   aiAll.avgJobs,
-      baseAvgJobs: (() => {
-        const b = tiersAll.find(t => t.key === "NOT IN GHL");
-        return b ? b.avgJobs : 0;
-      })(),
-      dateMin: scan.map(r => r.scheduled).filter(Boolean).sort()[0] || "",
-      dateMax: scan.map(r => r.scheduled).filter(Boolean).sort().slice(-1)[0] || "",
-    },
-    tiersAll, tiers2026, monthly, jobMix, fbFunnel,
+    scopes,
+    meta: { dateMin: dates[0] || "", dateMax: dates[dates.length - 1] || "" },
+    fbFunnel,
     fb: { tagged: tag.length, inHcp: fbInHcp, withJobs: fbWithJobs, converted: fbConverted, jobsTotal: fbJobsTotal },
     quality,
   };
 }
+
+/**
+ * Which controls each panel can honestly follow.
+ *
+ * The Facebook panels are the important entry here: tag_report.csv has no date
+ * column at all (Name, Phone, HCP Jobs, Converted?, Also fullbookai_lead?), so
+ * there is no way to restrict that funnel to a period. Rather than let it sit
+ * silently showing all-time numbers under a "2026 only" filter — which reads as
+ * filtered data and is how the figures get misquoted — the UI labels it.
+ */
+export const FILTERABILITY = {
+  coverage: { period: true,  metric: true },
+  trend:    { period: true,  metric: true },
+  jobMix:   { period: true,  metric: true },
+  facebook: { period: false, metric: false,
+    why: "The Facebook tag report has no date or job-date column, so it cannot be split by period. These are all-time figures whichever period is selected." },
+  quality:  { period: false, metric: false,
+    why: "These caveats describe the whole export, not the selected period." },
+  pivots:   { period: false, metric: false,
+    why: "Cross-checks compare against the workbook's all-time pivot tables, so they are deliberately unfiltered." },
+};
 
 /**
  * Strip the model down to what the dashboard actually renders — counts only.
@@ -230,10 +264,9 @@ export function buildAttribution(scanText, tagText, now = new Date()) {
  * them at render time.
  */
 export function toAggregates(model) {
-  const { scan, tag, nowISO, monthly, ...rest } = model;
+  const { scan, tag, nowISO, ...rest } = model;
   return {
     ...rest,
-    monthly: monthly.map(({ month, count }) => ({ month, count })),
     generatedAt: nowISO,
     sourceRows: { scan: scan.length, tag: tag.length },
   };
@@ -249,14 +282,17 @@ export const PIVOT_BASELINE = {
 };
 
 export function selfCheck(model) {
+  // Always checked against the all-time scope — the workbook's pivots are
+  // all-time, so checking a filtered view would report false mismatches.
+  const all = model.scopes.all;
   const out = [];
-  const ai = model.totals.aiCustomers;
+  const ai = all.totals.aiCustomers;
   out.push({
     label: "AI-lead total vs sheet pivot",
     ours: ai, theirs: PIVOT_BASELINE.aiLeadTotal, ok: ai === PIVOT_BASELINE.aiLeadTotal,
   });
   Object.entries(PIVOT_BASELINE.jobMix).forEach(([cat, theirs]) => {
-    const ours = (model.jobMix.find(m => m.cat === cat) || { count: 0 }).count;
+    const ours = (all.jobMix.find(m => m.cat === cat) || { customers: 0 }).customers;
     out.push({ label: `Job type — ${cat}`, ours, theirs, ok: ours === theirs });
   });
   return out;
