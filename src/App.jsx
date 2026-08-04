@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import { LI, SERIF, MONO } from "./theme.js";
+import Attribution from "./Attribution.jsx";
 
 const C = {
   bg: "#0D1B2A", panel: "#152638", panelDark: "#0A1520", border: "#1E3A52",
@@ -961,13 +963,6 @@ function AIInsights({ analysis, analyzing, analyzedAt, onAnalyze }) {
 }
 
 // ─── Lead Intelligence tab ────────────────────────────────────────────────────
-const LI = {
-  paper:"#F7F6F2", ink:"#1E2A26", soft:"#5B6A63", ever:"#16352B",
-  signal:"#3FB984", signalD:"#2A8C63", amber:"#E0A458", amberD:"#C0883C",
-  clay:"#B5654B", na:"#9AA59E", line:"#E3E0D7", line2:"#D5D2C7", card:"#FFFFFF",
-};
-const SERIF = "'Fraunces', serif";
-const MONO  = "'IBM Plex Mono', monospace";
 const QDIMS = [
   { key:"own", lab:"Homeowner",    vals:[["yes","Yes"],["no","No"]] },
   { key:"prs", lab:"Owner present",vals:[["yes","Yes"],["no","No"]] },
@@ -1695,6 +1690,7 @@ export default function App() {
   const [loadMsg, setLoadMsg] = useState("Connecting to the account...");
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [view, setView] = useState("leads");
 
   const getAnalysis = async (force = false) => {
     if (!data || analyzing) return;
@@ -1754,6 +1750,34 @@ export default function App() {
 
   useEffect(() => { load(); }, []);
 
+  // top-level view switch: live GHL dashboard vs static attribution export
+  const navBar = (
+    <nav style={{ display:"flex", gap:"2px", padding:"0 28px", borderBottom:`1px solid ${LI.line2}`, background:LI.paper }}>
+      {[["leads", "Lead Intelligence", "live"], ["attribution", "Job Attribution", "static"]].map(([key, label, kind]) => (
+        <button key={key} onClick={() => setView(key)} style={{
+          fontFamily: MONO, fontSize:"11px", letterSpacing:".1em", textTransform:"uppercase",
+          background:"transparent", border:0, borderBottom: view === key ? `2px solid ${LI.ever}` : "2px solid transparent",
+          color: view === key ? LI.ever : LI.soft, padding:"14px 16px 11px", cursor:"pointer",
+          display:"flex", alignItems:"center", gap:"7px",
+        }}>
+          {label}
+          <span style={{ fontSize:"9px", letterSpacing:".06em", color: kind === "live" ? LI.signalD : LI.na,
+            background: kind === "live" ? "#E6F3EC" : "#EFEDE6", borderRadius:"4px", padding:"2px 5px" }}>{kind}</span>
+        </button>
+      ))}
+    </nav>
+  );
+
+  // The attribution view reads bundled CSVs, so it works even when GHL is
+  // unreachable — don't let a failed live fetch hide it behind the error screen.
+  if (view === "attribution") return (
+    <div style={{ background: LI.paper, minHeight: "100vh" }}>
+      <style>{`* { box-sizing: border-box; } body { margin: 0; }`}</style>
+      {navBar}
+      <Attribution />
+    </div>
+  );
+
   if (step === "loading") return (
     <div style={{ ...styles.app, ...styles.loadingScreen }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } } body { margin: 0; }`}</style>
@@ -1781,6 +1805,8 @@ export default function App() {
   return (
     <div style={{ background: LI.paper, minHeight: "100vh" }}>
       <style>{`* { box-sizing: border-box; } body { margin: 0; } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {navBar}
       <LeadIntelligence
         data={data}
         onAnalyze={getAnalysis}

@@ -1,0 +1,202 @@
+{
+  "totals": {
+    "customers": 3165,
+    "jobs": 11769,
+    "customers26": 1003,
+    "jobs26": 4112,
+    "aiCustomers": 388,
+    "aiJobs": 1812,
+    "aiCustomers26": 380,
+    "aiJobs26": 1739,
+    "aiShareAll": 0.1225908372827804,
+    "aiShare26": 0.37886340977068794,
+    "aiAvgJobs": 4.670103092783505,
+    "baseAvgJobs": 3.6220270764727407,
+    "dateMin": "2022-10-16T15:00:00Z",
+    "dateMax": "2026-09-25T17:30:00Z"
+  },
+  "tiersAll": [
+    {
+      "key": "AI LEAD",
+      "label": "AI lead",
+      "color": "#2A8C63",
+      "customers": 388,
+      "jobs": 1812,
+      "avgJobs": 4.670103092783505
+    },
+    {
+      "key": "NOT IN GHL",
+      "label": "Not in GHL",
+      "color": "#3B6FA8",
+      "customers": 2733,
+      "jobs": 9899,
+      "avgJobs": 3.6220270764727407
+    },
+    {
+      "key": "NO PHONE",
+      "label": "No phone on file",
+      "color": "#BE6B1E",
+      "customers": 43,
+      "jobs": 43,
+      "avgJobs": 1
+    },
+    {
+      "key": "IN GHL (no AI tag)",
+      "label": "In GHL, no AI tag",
+      "color": "#A04E7C",
+      "customers": 1,
+      "jobs": 15,
+      "avgJobs": 15
+    }
+  ],
+  "tiers2026": [
+    {
+      "key": "AI LEAD",
+      "label": "AI lead",
+      "color": "#2A8C63",
+      "customers": 380,
+      "jobs": 1739,
+      "avgJobs": 4.576315789473684
+    },
+    {
+      "key": "NOT IN GHL",
+      "label": "Not in GHL",
+      "color": "#3B6FA8",
+      "customers": 585,
+      "jobs": 2321,
+      "avgJobs": 3.9675213675213676
+    },
+    {
+      "key": "NO PHONE",
+      "label": "No phone on file",
+      "color": "#BE6B1E",
+      "customers": 37,
+      "jobs": 37,
+      "avgJobs": 1
+    },
+    {
+      "key": "IN GHL (no AI tag)",
+      "label": "In GHL, no AI tag",
+      "color": "#A04E7C",
+      "customers": 1,
+      "jobs": 15,
+      "avgJobs": 15
+    }
+  ],
+  "jobMix": [
+    {
+      "cat": "Checkup/Follow-up",
+      "count": 216
+    },
+    {
+      "cat": "Treatment",
+      "count": 63
+    },
+    {
+      "cat": "Inspection",
+      "count": 56
+    },
+    {
+      "cat": "(no description)",
+      "count": 48
+    },
+    {
+      "cat": "Other",
+      "count": 5
+    }
+  ],
+  "fbFunnel": [
+    {
+      "step": "Tagged as Facebook lead in GHL",
+      "value": 357
+    },
+    {
+      "step": "Phone matches an HCP customer",
+      "value": 28
+    },
+    {
+      "step": "Has at least one HCP job",
+      "value": 9
+    },
+    {
+      "step": "Flagged converted",
+      "value": 8
+    }
+  ],
+  "fb": {
+    "tagged": 357,
+    "inHcp": 28,
+    "withJobs": 9,
+    "converted": 8,
+    "jobsTotal": 38
+  },
+  "quality": [
+    {
+      "level": "info",
+      "text": "93 of 3,165 rows have a first job scheduled in the future. \"Scheduled (first job)\" is a booking date, not a completion date, so the latest months include work that has not happened yet."
+    },
+    {
+      "level": "warn",
+      "text": "43 HCP customers have no phone number, so they cannot be matched to GHL at all. They sit in the \"No phone on file\" tier and are unattributable by construction — not evidence the AI missed them."
+    },
+    {
+      "level": "warn",
+      "text": "2,162 customers (68%) have their first job before 2026, predating the AI. All-time attribution rate is therefore misleadingly low — the 2026 view is the fair comparison."
+    },
+    {
+      "level": "warn",
+      "text": "1 Facebook-tagged contact has HCP jobs but is not flagged \"Converted?\" (19 jobs). The two columns disagree; the \"converted\" count is the more conservative of the two."
+    },
+    {
+      "level": "warn",
+      "text": "1 row in the tag report has neither a name nor a phone number, so it cannot be matched or verified."
+    },
+    {
+      "level": "info",
+      "text": "8 AI-tagged customers have a first job dated before 2026 (as far back as 2022). These are almost certainly existing customers who were later tagged in GHL, not leads the AI generated. They are excluded from the monthly trend but included in totals."
+    }
+  ],
+  "monthly": [
+    {
+      "month": "2026-01",
+      "count": 40
+    },
+    {
+      "month": "2026-02",
+      "count": 25
+    },
+    {
+      "month": "2026-03",
+      "count": 22
+    },
+    {
+      "month": "2026-04",
+      "count": 17
+    },
+    {
+      "month": "2026-05",
+      "count": 28
+    },
+    {
+      "month": "2026-06",
+      "count": 61
+    },
+    {
+      "month": "2026-07",
+      "count": 120
+    },
+    {
+      "month": "2026-08",
+      "count": 66
+    },
+    {
+      "month": "2026-09",
+      "count": 1
+    }
+  ],
+  "generatedAt": "2026-08-04T13:39:47.473Z",
+  "sourceRows": {
+    "scan": 3165,
+    "tag": 357
+  }
+}

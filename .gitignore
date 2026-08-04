@@ -1,2 +1,7 @@
 .vercel
 .env*
+
+# Raw attribution exports — these hold customer names and phone numbers, and
+# this repository is PUBLIC. Never commit them. Run `npm run data` to regenerate
+# src/data/aggregates.json (counts only), which IS committed.
+src/data/*.csv
